@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.CreatureQualityReport</RootNamespace>
+    <AssemblyName>CreatureQualityReport</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core for AnchorRowReader/SpeciesExpander (the same real classification+generation types
+         CreatureSpeciesGen uses — never reimplemented here). CombatSim for Simulator.Duel/Archetype —
+         the real combat pipeline, so a "balance" reading is never a private approximation of it.
+         Both are read-only from this tool's own point of view: it opens no database, issues no SQL,
+         and writes only its own report output, never data/generated/creatures or the seed tree. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+    <ProjectReference Include="$(GkCoreRoot)tools\CombatSim\CombatSim.csproj" />
+  </ItemGroup>
+</Project>

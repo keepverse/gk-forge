@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.DominanceBaseline</RootNamespace>
+    <AssemblyName>DominanceBaseline</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core only. class-system-todo.md Checkpoint 8's own remaining gap: _baseline-dominance.json's
+         dominanceMatrix/dominantCorners are produced by tools/CombatSim's trinity command, which reads
+         its own internal, still-v1-only tuning copy (P8.5) and is blocked by the same concurrent-edit
+         hazard as P3.4/P8.1. This tool computes the SAME two fields via the SHIPPED, already-tested
+         DominanceGuard.Measure / TerminationGuard.Assert (the production resolver, reads the live
+         data/tuning/aptitudes.v*.json automatically) instead of re-deriving anything, matching spec-
+         residual-fit.md §5's "ships no src/ code" rule, same pattern as tools/ResidualFitLoop and
+         tools/ProveAptitude. Deliberately does NOT reproduce trinity's own `chains` field (best-response
+         chase); that machinery is tools/CombatSim-only and out of this tool's scope. See class-system-
+         todo.md's own Checkpoint 8 evidence for why a partial, honestly-labelled overlay is correct here. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+  </ItemGroup>
+</Project>

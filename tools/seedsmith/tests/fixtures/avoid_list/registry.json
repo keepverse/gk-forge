@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "mark": "examplemark",
+      "category": "franchise-mark",
+      "scope": ["player-name", "player-prose"],
+      "remediation": "generator-owned",
+      "aliases": [
+        {"text": "Examplemark"},
+        {"text": "example mark"}
+      ],
+      "admission": {
+        "stage": "reconfirm",
+        "evidence": "census",
+        "source": "fixture",
+        "confirmedBy": "fixture",
+        "confirmedOn": "2026-09-23"
+      }
+    },
+    {
+      "mark": "codeonly",
+      "category": "company-brand",
+      "scope": ["code-identifier"],
+      "remediation": "code-change",
+      "aliases": [
+        {"text": "CodeonlyInternal"}
+      ],
+      "admission": {
+        "stage": "reconfirm",
+        "evidence": "census",
+        "source": "fixture",
+        "confirmedBy": "fixture",
+        "confirmedOn": "2026-09-23"
+      }
+    },
+    {
+      "mark": "shortmark",
+      "category": "franchise-mark",
+      "scope": ["player-prose"],
+      "remediation": "generator-owned",
+      "aliases": [
+        {"text": "Zorblax"},
+        {"text": "Zqx", "scope": ["player-name"]}
+      ],
+      "admission": {
+        "stage": "reconfirm",
+        "evidence": "census",
+        "source": "fixture",
+        "confirmedBy": "fixture",
+        "confirmedOn": "2026-09-23"
+      }
+    }
+  ]
+}

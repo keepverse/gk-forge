@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.TreeBinder</RootNamespace>
+    <AssemblyName>TreeBinder</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core only, same shape as PassiveTreeRosterGen/ElementEnumGen: this module must read
+         DerivedStatRegistry, AtomKindRegistry and power-scale.v{n}.json's pins, all Core SSOTs
+         (spec-tree-binder.md §Project structure: "This module is C#, not Python … it must read …
+         all of which are C# SSOTs"). No SQL, no Data reference, nothing for guard-dal.ps1 to police. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+  </ItemGroup>
+</Project>

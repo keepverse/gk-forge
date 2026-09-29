@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.CreatureRecipeDistributionIndex</RootNamespace>
+    <AssemblyName>CreatureRecipeDistributionIndex</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Re-derives concrete species from the real anchors (SpeciesExpander — the same method
+         species-import already uses), imports them into a throwaway temp-directory RpgStore purely
+         as the computation vehicle BuildCreatureSpeciesSnapshot() already needs (never a real/installed
+         save — the same "use a real store, discard it" pattern CreatureSpeciesImport's own diff-catalog
+         mode already established), then reuses CreatureRecipeCatalog's own real search
+         (NearestPopulatedRungBelow/OutputEligibilityFloor) rather than re-implementing "which rung is
+         below" a second time. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Data\FusionRpg.Data.csproj" />
+  </ItemGroup>
+</Project>

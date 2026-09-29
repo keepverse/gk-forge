@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.FamilyExpandGen</RootNamespace>
+    <AssemblyName>FamilyExpandGen</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core only — FamilyExpansion is a pure function over already-parsed input (the affix-family
+         corpus, the latest tier-bands revision, the live channel-pool catalog, and the optional
+         status-anchor registry) plus BattleRuleset's own shipped curves (spec-family-expand.md §2:
+         "call the shipped arithmetic, not reimplement it", the same CreatureSpeciesGen precedent this
+         tool's check mode follows). Opens no database and issues no SQL: reads the authored seed
+         inputs, validates pool references, and writes data/seed/atoms/generated/** plus its ignored
+         underscore-prefixed refusal/provenance manifest. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+{
+  "kind": "widget",
+  "_meta": { "partition": "a" },
+  "entries": [
+    { "id": "widget.a-001", "color": "blue" }
+  ]
+}

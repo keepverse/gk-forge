@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.ProveHubCombat</RootNamespace>
+    <AssemblyName>ProveHubCombat</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- prove-hub-combat (T19): needs BOTH the store-free battle Hub (FusionRpg.Core's
+         BattleHubCompose) and the RpgStore-backed sheet Hub (FusionRpg.Server's
+         UniqueActorHubCompose): the whole point is diffing the two REAL, SHIPPED compose gates
+         against each other for the SAME actor inputs, never a reimplementation of either. Runs
+         against RpgStore.InMemory() (FusionRpg.Data): no live server, no live game. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Data\FusionRpg.Data.csproj" />
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Server\FusionRpg.Server.csproj" />
+  </ItemGroup>
+</Project>

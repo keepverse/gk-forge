@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.AtomImporter</RootNamespace>
+    <AssemblyName>AtomImporter</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The data project, for RpgStore.ImportContent. This tool issues no SQL of its own and opens
+         no connection: guard-dal.ps1 scans only src/, so SQL written here would sit outside the one
+         rule that keeps it in one project. Everything that can be wrong about content lives in Core
+         and the data project. What is left is arguments, a report, and SeedScanner — which is a
+         class, not top-level statements, because tests/FusionRpg.AtomImporter.Tests holds it to the
+         one thing it must never do: sweep data/seed/ recursively over another tool's corpus. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Data\FusionRpg.Data.csproj" />
+  </ItemGroup>
+</Project>

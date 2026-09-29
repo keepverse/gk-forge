@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.CreatureSpeciesImport</RootNamespace>
+    <AssemblyName>CreatureSpeciesImport</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The data project, for RpgStore.ImportSpecies. This tool issues no SQL of its own —
+         guard-dal.ps1 scans only src/, so the rule that keeps SQL in one project stops applying the
+         moment a tool writes its own; ImportSpecies is how this tool stays on the right side of that
+         line, the same reasoning RpgStore.Import.cs's own doc comment states for AtomImporter. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Data\FusionRpg.Data.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- identity-rename T13: the tool reaches RpgStore.Init(), which names an empty save from the
+         lead-names registry; without this the published tool throws at startup. -->
+    <Content Include="$(GkDataRoot)packs\fusion\data\seed\narrative\_registry\**\*.json">
+      <Link>data\seed\narrative\_registry\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

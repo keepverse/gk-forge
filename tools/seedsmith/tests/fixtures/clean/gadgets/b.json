@@ -1,0 +1,7 @@
+{
+  "kind": "gadget",
+  "_meta": { "partition": "b" },
+  "entries": [
+    { "id": "gadget.b-001", "size": "small" }
+  ]
+}

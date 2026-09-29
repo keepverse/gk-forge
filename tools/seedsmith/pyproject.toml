@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seedsmith"
+version = "1.0.0"
+description = "Seed-corpus health: validate, measure, plan, and generate content for the Rise of Summoner corpora."
+requires-python = ">=3.11"
+
+# EXACT pins, never ranges (spec-dependency-baseline.md §2.1).
+#
+# A range means two clones can run different code and both call themselves green, which is
+# incompatible with a program whose central claim is byte-identical reproducibility. LangGraph
+# shipped 10 releases in 2026-04 alone (measured) — it moves.
+dependencies = [
+    # Chinese word segmentation. A regex cannot segment a language without spaces: before this,
+    # `own_motifs` captured whole punctuation-free clauses as single "motifs" (real defect,
+    # 2026-08-31 run). Added in D2.3 and DECLARED NOWHERE until now — a fresh clone failed
+    # test_motif_derive.py with ModuleNotFoundError. That debt is what this file pays.
+    "jieba==0.42.1",
+]
+
+[project.optional-dependencies]
+# The workflow engine (spec-workflow-runtime.md). Kept in an extra so the measurement half of
+# seedsmith — corpus, metrics, report — still installs and runs without it.
+workflow = [
+    "langgraph==1.2.11",
+    "langgraph-checkpoint-sqlite==3.1.1",
+]
+dev = [
+    "pytest==9.0.2",
+]
+
+[tool.setuptools.packages.find]
+include = ["seedsmith*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

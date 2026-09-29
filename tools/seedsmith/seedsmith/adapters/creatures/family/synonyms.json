@@ -1,0 +1,7 @@
+{
+  "_comment": "Human-edited, algorithm-read (spec-family-consolidate.md §2.1 rule 3). Maps a normalized alias -> its canonical head. Only entries the mechanical head-noun merge (§2.1 rules 1-2) cannot reach on its own belong here — if two labels already share a head token, adding them here is redundant, not wrong, but it means the head-noun rule already did the job.",
+  "aliases": {
+    "armor-plated": "shell",
+    "shambler": "lurcher"
+  }
+}

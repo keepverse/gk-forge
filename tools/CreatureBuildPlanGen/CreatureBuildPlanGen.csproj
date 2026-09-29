@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.CreatureBuildPlanGen</RootNamespace>
+    <AssemblyName>CreatureBuildPlanGen</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core only — SpeciesBuildPlanner is a pure function over already-loaded anchors and one
+         tuning file (spec-redistribution-plan.md: "the planner is pure and Core-only"). This tool
+         opens no database and issues no SQL: it reads data/seed/creatures/species/**, writes
+         data/generated/creatures/_species-build-plan.json, both plain files, no RpgStore involved. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+  </ItemGroup>
+</Project>

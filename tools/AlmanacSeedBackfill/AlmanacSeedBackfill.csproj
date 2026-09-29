@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.AlmanacSeedBackfill</RootNamespace>
+    <AssemblyName>AlmanacSeedBackfill</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The data project, for RpgStore.UpsertAlmanacSeedBulk. This tool issues no SQL of its own —
+         same discipline CreatureSpeciesImport/AtomImporter already follow. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Data\FusionRpg.Data.csproj" />
+  </ItemGroup>
+</Project>

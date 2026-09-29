@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionRpg.Tools.ElementEnumGen</RootNamespace>
+    <AssemblyName>ElementEnumGen</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Core only: this reads data/seed/elements/roster.json through AtomSeedFile.Collect (already
+         Core) and compares against ElementTypeId/ElementRoster/ElementTable, all Core. No SQL, no
+         Data reference, nothing for guard-dal.ps1 to police. -->
+    <ProjectReference Include="$(GkCoreRoot)src\FusionRpg.Core\FusionRpg.Core.csproj" />
+  </ItemGroup>
+</Project>
