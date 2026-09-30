@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.Tools.ItemSeedValidator.Registries;
 
@@ -608,13 +609,32 @@ public sealed class RegistrySet
     }
 
     /// <summary>
-    /// Walks up from the process's own working directory looking for a file outside this registry
-    /// set's own <see cref="RegistryDir"/> — a cross-corpus reference (the creature theme registry
-    /// lives under <c>gk-data/packs/fusion/data/seed/creatures/</c>, not <c>gk-data/packs/fusion/data/seed/items/</c>), so it cannot be resolved
+    /// Resolves a file that belongs to ANOTHER corpus than this registry set's own
+    /// <see cref="RegistryDir"/> — the creature theme registry lives under the content pack's
+    /// <c>data/seed/creatures/</c>, not its <c>data/seed/items/</c> — so it cannot be resolved
     /// relative to the wave-0 registry directory the way every other file in this class is.
+    ///
+    /// <para>This used to walk up from the process's working directory. That worked in the monorepo
+    /// and is wrong after the split for the reason this workspace keeps hitting: the content pack is
+    /// a SIBLING of gk-forge, so no number of <c>..</c> hops from a gk-forge subdirectory arrives at
+    /// it, and the walk silently returned null. The caller then degraded to "no species registry",
+    /// which reads as an empty roster rather than as a missing repository — the failure mode where a
+    /// wrong root presents as absent data.</para>
+    ///
+    /// <para><see cref="KeepverseRoots.Roots"/> is the resolver's answer to precisely this question:
+    /// it returns the candidate roots in order so the filesystem decides, because a caller handed a
+    /// path whose owning root it cannot identify should not have to know. The upward walk is kept as
+    /// a fallback for a legacy checkout whose root is not one of the named candidates, and it is a
+    /// fallback rather than the primary because a walk's answer depends on the working directory.</para>
     /// </summary>
     static string? FindUpwards(string relativeFile)
     {
+        foreach (var root in KeepverseRoots.Roots())
+        {
+            var candidate = Path.Combine(root, relativeFile);
+            if (File.Exists(candidate)) return candidate;
+        }
+
         var probe = new DirectoryInfo(Directory.GetCurrentDirectory());
         while (probe is not null)
         {
