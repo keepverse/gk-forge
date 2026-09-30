@@ -6,6 +6,7 @@ using FusionRpg.Core.PassiveTree.State;
 using FusionRpg.Core.Stats.Derived;
 using FusionRpg.Tools.TreeBinder;
 using Xunit;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.TreeBinder.Tests;
 
@@ -315,12 +316,6 @@ public class ReportWriterTests
 
     static string FindRepoRoot()
     {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "CONTRIBUTING.md"))) return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException("could not locate the repo root (CONTRIBUTING.md not found upward)");
+        return KeepverseRoots.Core();
     }
 }

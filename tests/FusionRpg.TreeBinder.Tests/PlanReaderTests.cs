@@ -3,6 +3,7 @@ using FusionRpg.Core.PassiveTree.Catalog;
 using FusionRpg.Core.PassiveTree.State;
 using FusionRpg.Tools.TreeBinder;
 using Xunit;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.TreeBinder.Tests;
 
@@ -275,13 +276,7 @@ public class ReadPlanNodesWithSeedTests
 
     static string FindRepoRoot()
     {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "CONTRIBUTING.md"))) return dir.FullName;
-            dir = dir.Parent;
-        }
-        throw new InvalidOperationException("could not locate the repo root (CONTRIBUTING.md not found upward)");
+        return KeepverseRoots.Core();
     }
 
     // ---- TreeIdFromPlanFileName (J1, 2026-09-07): the real silent-data-loss bug --------------------

@@ -7,6 +7,7 @@ using FusionRpg.Core.PassiveTree.State;
 using FusionRpg.Core.Power;
 using FusionRpg.Tools.TreeBinder;
 using Xunit;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.TreeBinder.Tests;
 
@@ -23,10 +24,7 @@ public class RealContentIntegrationTests
 {
     static string RepoRoot()
     {
-        var dir = Directory.GetCurrentDirectory();
-        while (dir is not null && !File.Exists(Path.Combine(dir, "CONTRIBUTING.md")))
-            dir = Directory.GetParent(dir)?.FullName;
-        return dir ?? throw new InvalidOperationException("repo root not found");
+        return KeepverseRoots.Core();
     }
 
     [Fact]
