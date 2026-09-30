@@ -1,2 +1,31 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="tools/AffixMetricsGate/AffixMetricsGate.csproj" />
+    <Project Path="tools/AlmanacSeedBackfill/AlmanacSeedBackfill.csproj" />
+    <Project Path="tools/AtomImporter/AtomImporter.csproj" />
+    <Project Path="tools/CreatureBuildPlanGen/CreatureBuildPlanGen.csproj" />
+    <Project Path="tools/CreatureCatalogGen/CreatureCatalogGen.csproj" />
+    <Project Path="tools/CreatureCorpusDump/CreatureCorpusDump.csproj" />
+    <Project Path="tools/CreatureCorpusEmit/CreatureCorpusEmit.csproj" />
+    <Project Path="tools/CreatureQualityReport/CreatureQualityReport.csproj" />
+    <Project Path="tools/CreatureRecipeDistributionIndex/CreatureRecipeDistributionIndex.csproj" />
+    <Project Path="tools/CreatureRecipeReconcileInput/CreatureRecipeReconcileInput.csproj" />
+    <Project Path="tools/CreatureSpeciesGen/CreatureSpeciesGen.csproj" />
+    <Project Path="tools/CreatureSpeciesImport/CreatureSpeciesImport.csproj" />
+    <Project Path="tools/DominanceBaseline/DominanceBaseline.csproj" />
+    <Project Path="tools/ElementEnumGen/ElementEnumGen.csproj" />
+    <Project Path="tools/FamilyExpandGen/FamilyExpandGen.csproj" />
+    <Project Path="tools/ItemSeedValidator/ItemSeedValidator.csproj" />
+    <Project Path="tools/PassiveTreeRosterGen/PassiveTreeRosterGen.csproj" />
+    <Project Path="tools/ProveHubCombat/ProveHubCombat.csproj" />
+    <Project Path="tools/TreeBinder/TreeBinder.csproj" />
+    <Project Path="tools/_TempSeedSpecies/_TempSeedSpecies.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FusionRpg.AtomImporter.Tests/FusionRpg.AtomImporter.Tests.csproj" />
+    <Project Path="tests/FusionRpg.ElementEnumGen.Tests/FusionRpg.ElementEnumGen.Tests.csproj" />
+    <Project Path="tests/FusionRpg.ItemSeedValidator.Tests/FusionRpg.ItemSeedValidator.Tests.csproj" />
+    <Project Path="tests/FusionRpg.PassiveTreeRosterGen.Tests/FusionRpg.PassiveTreeRosterGen.Tests.csproj" />
+    <Project Path="tests/FusionRpg.TreeBinder.Tests/FusionRpg.TreeBinder.Tests.csproj" />
+  </Folder>
 </Solution>

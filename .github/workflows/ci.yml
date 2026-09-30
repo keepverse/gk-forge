@@ -1,0 +1,67 @@
+name: CI
+
+# gk-forge's own continuous integration.
+#
+# WHY THIS FILE IS SMALL. CI policy is gk-workflow's, per the workspace ownership rule: shared
+# guards, verification harnesses, path rules and contributor standards have one owner, and a second
+# copy in a sub-repository is the competing copy that rule exists to prevent. This is therefore a
+# thin entrypoint - it runs this repository's own solution and nothing more, and it holds no policy
+# of its own.
+#
+# WHY IT EXISTS AT ALL, which is a measurement rather than a preference. gk-forge had NO CI, and its
+# FusionRpg.slnx was an empty document - `<Solution></Solution>`. So `dotnet build` and `dotnet test`
+# at this repository's root both exited 0 having done nothing: zero of the 20 tools compiled and
+# zero of the 225 tests ran. A green signal from an empty solution is the worst kind, because it is
+# indistinguishable from a green signal from a repository whose tests pass. The solution is now
+# populated with the 25 projects that exist on disk, and this workflow is what stops that from
+# recurring silently.
+#
+# The same trap has a second form worth naming, because it bit gk-core too: an UNBUILDABLE project is
+# reported as absent by a solution-wide run, not as an error. A project that is simply not listed
+# therefore cannot fail, and neither can one that is listed but excluded. This workflow names the
+# solution, so a project that drops out of it stops the build rather than vanishing from it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tools-and-tests:
+    name: Build all tools, run all tests
+    runs-on: windows-latest
+    # Generators here walk the whole creature corpus, so this is bounded rather than generous on
+    # purpose: a hang should fail fast instead of idling toward the runner's own default.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            6.0.x
+
+      # A solution-wide build first, so a tool that does not compile fails here with a compile error
+      # rather than as a confusing test failure five minutes later. It is also the only step that
+      # covers the 20 tools, which no test project references.
+      - name: Build the solution
+        run: dotnet build FusionRpg.slnx -v minimal --nologo
+
+      # 225 tests across 5 projects. `--blame-hang-timeout` matches test.runsettings' TestTimeout;
+      # the runner's own default is far longer, and a generator that waits on input would otherwise
+      # hold the job open.
+      #
+      # Each project is checked through the solution so a project that drops out of FusionRpg.slnx
+      # cannot quietly remove its own tests from this gate - which is precisely the failure this
+      # repository had.
+      - name: Run the tests
+        run: dotnet test FusionRpg.slnx --no-build --verbosity minimal --blame-hang --blame-hang-timeout 10min
