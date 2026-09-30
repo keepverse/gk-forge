@@ -1,6 +1,10 @@
 using FusionRpg.Data.Seed;
 using Xunit;
-using FusionRpg.TestSupport;
+// The `using FusionRpg.TestSupport;` that used to stand here is gone with the cross-repository
+// Compile Include that provided it. gk-core's tests/Shared/KeepverseRoots.cs declared four
+// INTERNAL root helpers in that namespace; the public FusionRpg.Core.Workspace.KeepverseRoots
+// already in this assembly does the same job, and it is named explicitly at each call site so a
+// reader can tell WHICH repository a path is resolved against.
 using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.AtomImporter.Tests;
@@ -161,7 +165,6 @@ public class SeedScannerTests : IDisposable
     {
         // C3: two owned folders declared with no content looked identical to two forgotten ones.
         // The README in each is the distinction — a real, checked-in file, not a synthetic fixture.
-        var root = RepoRoot();
 
         Assert.True(Directory.Exists(Path.Combine(KeepverseRoots.Content(), "data", "seed", "curves")), "data/seed/curves missing");
         Assert.True(Directory.Exists(Path.Combine(KeepverseRoots.Content(), "data", "seed", "rarity")), "data/seed/rarity missing");
@@ -172,7 +175,6 @@ public class SeedScannerTests : IDisposable
     [Fact]
     public void The_real_sweep_finds_zero_json_in_curves_still_empty_on_purpose()
     {
-        var root = RepoRoot();
         var roots = SeedScanner.Roots(Path.Combine(KeepverseRoots.Content(), "data", "seed"), explicitRoot: false, Directory.Exists);
         var files = SeedScanner.Files(roots);
 
@@ -186,7 +188,6 @@ public class SeedScannerTests : IDisposable
         // purpose" once the ten-rung ladder was seeded -- gk-data/packs/fusion/data/seed/rarity/README.md says so, and
         // this is the sweep-level pin that a future regression can't silently re-empty the folder
         // and have this suite stay green either way.
-        var root = RepoRoot();
         var roots = SeedScanner.Roots(Path.Combine(KeepverseRoots.Content(), "data", "seed"), explicitRoot: false, Directory.Exists);
         var files = SeedScanner.Files(roots);
 
@@ -203,8 +204,7 @@ public class SeedScannerTests : IDisposable
     [Fact]
     public void AtomImporter_swept_folder_matches_seedsmiths_own_affix_write_path()
     {
-        var root = RepoRoot();
-        var generatorPath = Path.Combine(root, "tools", "seedsmith", "seedsmith", "adapters", "effects", "affix", "generate_affixes.py");
+        var generatorPath = Path.Combine(KeepverseRoots.Forge(), "tools", "seedsmith", "seedsmith", "adapters", "effects", "affix", "generate_affixes.py");
         Assert.True(File.Exists(generatorPath), $"seedsmith's affix generator moved or was renamed: {generatorPath}");
 
         var source = File.ReadAllText(generatorPath);
@@ -227,8 +227,7 @@ public class SeedScannerTests : IDisposable
     [Fact]
     public void AtomImporter_swept_folder_matches_seedsmiths_own_species_effects_write_path()
     {
-        var root = RepoRoot();
-        var generatorPath = Path.Combine(root, "tools", "seedsmith", "run_t53_claude_propose.py");
+        var generatorPath = Path.Combine(KeepverseRoots.Forge(), "tools", "seedsmith", "run_t53_claude_propose.py");
         Assert.True(File.Exists(generatorPath), $"seedsmith's species-effects generator moved or was renamed: {generatorPath}");
 
         var source = File.ReadAllText(generatorPath);
@@ -246,7 +245,6 @@ public class SeedScannerTests : IDisposable
     {
         // Pins that the folder is not just declared but actually reaches real committed content —
         // the same class of silent gap the folder's own addition just closed.
-        var root = RepoRoot();
         var roots = SeedScanner.Roots(Path.Combine(KeepverseRoots.Content(), "data", "seed"), explicitRoot: false, Directory.Exists);
         var files = SeedScanner.Files(roots);
 
@@ -294,7 +292,6 @@ public class SeedScannerTests : IDisposable
         // D4.16 content has landed since the original no-op pin. Keep this test tied to the real tree
         // so ownership drift is visible, while the atom import path uses AtomRoots and excludes these
         // dungeon-specific envelopes.
-        var root = RepoRoot();
         var dungeonRoot = Path.Combine(KeepverseRoots.Content(), "data", "seed", "dungeon");
         Assert.True(Directory.Exists(dungeonRoot));
         var subfolders = Directory.GetDirectories(dungeonRoot).Select(Path.GetFileName).ToList();
@@ -305,5 +302,4 @@ public class SeedScannerTests : IDisposable
             Assert.Contains(folder, subfolders!);
     }
 
-    static string RepoRoot() => ContentRoot.Path;
 }

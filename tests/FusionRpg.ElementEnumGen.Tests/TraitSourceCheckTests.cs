@@ -1,7 +1,11 @@
 using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Tools.ElementEnumGen;
 using Xunit;
-using FusionRpg.TestSupport;
+// The `using FusionRpg.TestSupport;` that used to stand here is gone with the cross-repository
+// Compile Include that provided it. gk-core's tests/Shared/KeepverseRoots.cs declared four
+// INTERNAL root helpers in that namespace; the public FusionRpg.Core.Workspace.KeepverseRoots
+// already in this assembly does the same job, and it is named explicitly at each call site so a
+// reader can tell WHICH repository a path is resolved against.
 using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.ElementEnumGen.Tests;
@@ -121,7 +125,6 @@ public class TraitSourceCheckTests
     [Fact]
     public void The_real_shipped_trait_content_agrees_with_the_real_Shipped_dictionary()
     {
-        var root = RepoRoot();
         var files = new[] { "atoms", "containers" }
             .Select(d => Path.Combine(KeepverseRoots.Content(), "data", "seed", d))
             .SelectMany(d => Directory.GetFiles(d, "*.json", SearchOption.AllDirectories))
@@ -137,5 +140,4 @@ public class TraitSourceCheckTests
         Assert.True(report.IsOk, string.Join("; ", report.Mismatches));
     }
 
-    static string RepoRoot() => ContentRoot.Path;
 }

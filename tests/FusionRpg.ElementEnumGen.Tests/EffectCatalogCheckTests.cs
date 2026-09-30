@@ -1,6 +1,10 @@
 using FusionRpg.Tools.ElementEnumGen;
 using Xunit;
-using FusionRpg.TestSupport;
+// The `using FusionRpg.TestSupport;` that used to stand here is gone with the cross-repository
+// Compile Include that provided it. gk-core's tests/Shared/KeepverseRoots.cs declared four
+// INTERNAL root helpers in that namespace; the public FusionRpg.Core.Workspace.KeepverseRoots
+// already in this assembly does the same job, and it is named explicitly at each call site so a
+// reader can tell WHICH repository a path is resolved against.
 using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.ElementEnumGen.Tests;
@@ -17,11 +21,10 @@ public class EffectCatalogCheckTests
     [Fact]
     public void The_checked_in_effect_catalog_matches_the_seed()
     {
-        var root = RepoRoot();
         var gen = EffectCatalogGen.GenerateFromSeed(Path.Combine(KeepverseRoots.Content(), "data", "seed"), ShippedFxFiles);
         Assert.True(gen.Code == 0, gen.Message);
 
-        var checkedIn = File.ReadAllText(Path.Combine(root, "src", "FusionRpg.Core", "Effects", "EffectAtomCatalog.Generated.cs"));
+        var checkedIn = File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "src", "FusionRpg.Core", "Effects", "EffectAtomCatalog.Generated.cs"));
         Assert.True(EffectCatalogGen.Matches(gen.Source!, checkedIn),
             "EffectAtomCatalog.Generated.cs is stale — run: dotnet run --project tools/ElementEnumGen -- --effect-emit src/FusionRpg.Core/Effects/EffectAtomCatalog.Generated.cs");
     }
@@ -39,5 +42,4 @@ public class EffectCatalogCheckTests
         Assert.True(EffectCatalogGen.Matches("a\nb\n", "a\r\nb\r\n"));
     }
 
-    static string RepoRoot() => ContentRoot.Path;
 }

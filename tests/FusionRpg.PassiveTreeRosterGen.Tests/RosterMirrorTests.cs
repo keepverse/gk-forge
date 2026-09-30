@@ -245,12 +245,20 @@ public class NoHardcodedCountsTests
             System.Text.RegularExpressions.RegexOptions.Multiline);
     }
 
-    static string ToolSourceDir()
-    {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CONTRIBUTING.md")))
-            dir = dir.Parent;
-        var root = dir?.FullName ?? throw new System.InvalidOperationException("repo root not found");
-        return Path.Combine(root, "tools", "PassiveTreeRosterGen");
-    }
+    /// <summary>
+    /// Where this repository's PassiveTreeRosterGen source lives.
+    ///
+    /// <para>This used to walk upward for a directory containing CONTRIBUTING.md. That worked in the
+    /// monorepo, where exactly one directory had it, and it is wrong after the split for two separate
+    /// reasons: gk-forge has no CONTRIBUTING.md of its own, and the WORKSPACE ROOT does - so the walk
+    /// stopped there and this repository's <c>tools/</c> was looked for in gk-workflow. The walk was
+    /// not merely imprecise; it was answering a different question, because "the directory holding
+    /// CONTRIBUTING.md" and "this repository" stopped being the same directory when nine
+    /// repositories appeared.</para>
+    ///
+    /// <para>The resolver already knows which repository owns a path, so the walk is gone. A marker
+    /// file that nine repositories share is not a way to identify one of them.</para>
+    /// </summary>
+    static string ToolSourceDir() =>
+        Path.Combine(KeepverseRoots.Forge(), "tools", "PassiveTreeRosterGen");
 }
