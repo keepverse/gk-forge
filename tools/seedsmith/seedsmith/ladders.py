@@ -26,11 +26,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from .workspace_roots import content_root, core_root
 
 #: The declaring files, named once each so a test can assert the version this leaf reads.
-RARITY_LADDER_FILE = REPO_ROOT / "data" / "seed" / "rarity" / "ladder.v1.json"
-THREAT_TUNING_FILE = REPO_ROOT / "data" / "tuning" / "creature-threat.v2.json"
+#:
+#: THESE TWO LIVES IN TWO DIFFERENT REPOSITORIES, which is what the single `REPO_ROOT` above could not
+#: express. `data/seed/**` is gk-data's pack and `data/tuning/**` is gk-core's; before the split both
+#: sat under one root. The module read `REPO_ROOT = parents[3]` - gk-forge - which has neither, so
+#: `rarity_ladder()` raised FileNotFoundError at IMPORT time, and because `RARITY_LADDER` is a
+#: module-level constant every entry point that imports this one died with it.
+#:
+#: That is the failure this fixes, and it was invisible for the same reason fourteen check wrappers
+#: were: the wrappers were reporting green without running, so nothing had asked this module for a
+#: rarity rung since the split. The docstring one line below already named the post-split path
+#: (`gk-data/packs/fusion/data/seed/rarity/ladder.v1.json`) while the code above it still walked up
+#: from gk-forge - the same docstring-right/code-stale shape as prove_actor_hud_live.py's WEB_DIR.
+#:
+#: `REPO_ROOT` SURVIVES, and it now means gk-core rather than gk-forge.
+#:
+#: I removed it first, on a measurement that was wrong. The grep I used looked for `ladders.REPO_ROOT`
+#: and for `ladders import`, and the one real consumer writes it as a multi-line
+#: `from seedsmith.ladders import (...)` - which neither pattern matched, and my result was truncated
+#: to ten lines, so the miss looked like a clean answer. Removing it broke
+#: tests/test_ladders_declaring_reads.py at IMPORT time, which is how I found out.
+#:
+#: Its one consumer uses it as `REPO_ROOT / "data" / "tuning"`, and `data/tuning` is gk-core's - so
+#: `core_root()` is what it has always meant in practice, and saying so is the honest reading. It is
+#: kept under the old name rather than renamed because renaming it would churn a test for no gain,
+#: and the comment is what stops the next reader assuming it points at the package's own repository.
+REPO_ROOT = core_root()
+RARITY_LADDER_FILE = content_root() / "data" / "seed" / "rarity" / "ladder.v1.json"
+THREAT_TUNING_FILE = core_root() / "data" / "tuning" / "creature-threat.v2.json"
 
 
 def _read_ids(path: Path, rows_key: str, order_key: str, id_key: str) -> "tuple[str, ...]":
