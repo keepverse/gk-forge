@@ -222,7 +222,7 @@ public class ReadPlanNodesWithSeedTests
         // gk-data/packs/fusion/data/seed/passive-tree/nodes/ferocity.json round-trips through ReadPlanNodesWithSeed with
         // its exact real content, not a hand-typed stand-in.
         var repoRoot = FindRepoRoot();
-        var seedJson = File.ReadAllText(Path.Combine(repoRoot, "data", "seed", "passive-tree",
+        var seedJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree",
             "nodes", "ferocity.json"));
         var plan = """{"nodes":[{"id":"skill.ferocity-def-t1-n0","budgetShareMilli":10}]}""";
 
@@ -265,7 +265,7 @@ public class ReadPlanNodesWithSeedTests
         // PoC run against the live local model (spec-passive-tree-identity-content.md), not
         // hand-typed fixtures.
         var repoRoot = FindRepoRoot();
-        var identityPath = Path.Combine(repoRoot, "data", "seed", "passive-tree", "identity", $"{treeId}.json");
+        var identityPath = Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "identity", $"{treeId}.json");
         Assert.True(File.Exists(identityPath), $"real committed identity file missing: {identityPath}");
 
         var (name, description) = PlanReader.ReadTreeIdentity(File.ReadAllText(identityPath));

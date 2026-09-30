@@ -2,6 +2,7 @@ using System.IO;
 using System.Linq;
 using FusionRpg.Tools.PassiveTreeRosterGen;
 using Xunit;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.PassiveTreeRosterGen.Tests;
 
@@ -79,7 +80,7 @@ public class StatusRosterCheckTests
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CONTRIBUTING.md")))
             dir = dir.Parent;
         var root = dir?.FullName ?? throw new System.InvalidOperationException("repo root not found");
-        return Path.Combine(new[] { root, "data", "seed" }.Concat(segments).ToArray());
+        return Path.Combine(new[] { KeepverseRoots.Content(), "data", "seed" }.Concat(segments).ToArray());
     }
 }
 
@@ -193,7 +194,7 @@ public class AtomVocabCheckTests
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CONTRIBUTING.md")))
             dir = dir.Parent;
         var root = dir?.FullName ?? throw new System.InvalidOperationException("repo root not found");
-        return Path.Combine(new[] { root, "data", "seed" }.Concat(segments).ToArray());
+        return Path.Combine(new[] { KeepverseRoots.Content(), "data", "seed" }.Concat(segments).ToArray());
     }
 }
 

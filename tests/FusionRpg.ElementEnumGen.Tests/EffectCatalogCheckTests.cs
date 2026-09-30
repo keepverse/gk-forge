@@ -1,6 +1,7 @@
 using FusionRpg.Tools.ElementEnumGen;
 using Xunit;
 using FusionRpg.TestSupport;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.ElementEnumGen.Tests;
 
@@ -17,7 +18,7 @@ public class EffectCatalogCheckTests
     public void The_checked_in_effect_catalog_matches_the_seed()
     {
         var root = RepoRoot();
-        var gen = EffectCatalogGen.GenerateFromSeed(Path.Combine(root, "data", "seed"), ShippedFxFiles);
+        var gen = EffectCatalogGen.GenerateFromSeed(Path.Combine(KeepverseRoots.Content(), "data", "seed"), ShippedFxFiles);
         Assert.True(gen.Code == 0, gen.Message);
 
         var checkedIn = File.ReadAllText(Path.Combine(root, "src", "FusionRpg.Core", "Effects", "EffectAtomCatalog.Generated.cs"));

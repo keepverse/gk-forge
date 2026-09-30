@@ -36,7 +36,7 @@ public class RealContentIntegrationTests
         var powerTuning = PowerTuningLoader.Parse(
             File.ReadAllText(Path.Combine(root, "data", "tuning", "power-scale.v2.json")));
 
-        var planJson = File.ReadAllText(Path.Combine(root, "data", "seed", "passive-tree", "plan", "might.v1.json"));
+        var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "might.v1.json"));
         var nodes = PlanReader.ReadPlanNodes(planJson, treeTuning);
 
         // The node count (40 today) is a growing content population, never pinned (population-pin
@@ -69,7 +69,7 @@ public class RealContentIntegrationTests
             File.ReadAllText(Path.Combine(root, "data", "tuning", "passive-tree.v1.json")));
         var powerTuning = PowerTuningLoader.Parse(
             File.ReadAllText(Path.Combine(root, "data", "tuning", "power-scale.v2.json")));
-        var planJson = File.ReadAllText(Path.Combine(root, "data", "seed", "passive-tree", "plan", "might.v1.json"));
+        var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "might.v1.json"));
         var nodes = PlanReader.ReadPlanNodes(planJson, treeTuning);
 
         var report = TreeBinderRun.BindTree(nodes,
@@ -107,8 +107,8 @@ public class RealContentIntegrationTests
         var treeTuning = PassiveTreeTuningLoader.Parse(
             File.ReadAllText(Path.Combine(root, "data", "tuning", "passive-tree.v1.json")));
 
-        var planJson = File.ReadAllText(Path.Combine(root, "data", "seed", "passive-tree", "plan", "ferocity.v1.json"));
-        var seedPath = Path.Combine(root, "data", "seed", "passive-tree", "nodes", "ferocity.json");
+        var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "ferocity.v1.json"));
+        var seedPath = Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "nodes", "ferocity.json");
         var seedJson = File.Exists(seedPath) ? File.ReadAllText(seedPath) : null;
         Assert.NotNull(seedJson); // this test's whole point depends on the real seed existing
 

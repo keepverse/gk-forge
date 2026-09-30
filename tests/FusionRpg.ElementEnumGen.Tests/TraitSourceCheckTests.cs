@@ -2,6 +2,7 @@ using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Tools.ElementEnumGen;
 using Xunit;
 using FusionRpg.TestSupport;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.ElementEnumGen.Tests;
 
@@ -122,7 +123,7 @@ public class TraitSourceCheckTests
     {
         var root = RepoRoot();
         var files = new[] { "atoms", "containers" }
-            .Select(d => Path.Combine(root, "data", "seed", d))
+            .Select(d => Path.Combine(KeepverseRoots.Content(), "data", "seed", d))
             .SelectMany(d => Directory.GetFiles(d, "*.json", SearchOption.AllDirectories))
             .OrderBy(f => f, StringComparer.Ordinal)
             .Select(f => (f, File.ReadAllText(f)))

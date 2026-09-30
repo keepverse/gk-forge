@@ -3,6 +3,7 @@ using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Tools.ElementEnumGen;
 using Xunit;
 using FusionRpg.TestSupport;
+using FusionRpg.Core.Workspace;
 
 namespace FusionRpg.ElementEnumGen.Tests;
 
@@ -96,7 +97,7 @@ public class ElementEnumCheckTests
     public void The_real_shipped_roster_file_agrees_with_the_real_enum()
     {
         var root = RepoRoot();
-        var rosterFile = Path.Combine(root, "data", "seed", "elements", "roster.json");
+        var rosterFile = Path.Combine(KeepverseRoots.Content(), "data", "seed", "elements", "roster.json");
         var collected = AtomSeedFile.Collect(new[] { (rosterFile, File.ReadAllText(rosterFile)) });
         Assert.True(collected.IsOk, string.Join("; ", collected.Errors));
 
