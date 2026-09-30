@@ -1,4 +1,5 @@
 using FusionRpg.Core.Effects.Atoms;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Tools.ElementEnumGen;
 
 // E23 content-codegen checks (completeness-audit.md B2): do the hand-written pieces that mirror
@@ -139,8 +140,29 @@ Console.Error.WriteLine($"{report.Mismatches.Count} disagreement(s):");
 foreach (var m in report.Mismatches) Console.Error.WriteLine("  " + m);
 return 1;
 
+/// <summary>
+/// Finds a corpus directory, preferring the resolver's candidate roots over an upward walk.
+///
+/// <para>The walk alone cannot work here. `data/seed` lives in the gk-data content PACK, which is a
+/// SIBLING of this repository, so no number of `..` hops from a gk-forge subdirectory arrives at it
+/// and the walk returned null - the tool then exited 2 with "could not locate data/seed", which reads
+/// like a wrong invocation rather than a layout that moved underneath it. The resolver returns
+/// candidate roots in order so the filesystem decides, and it already handles the legacy single-repo
+/// checkout by returning the repository root there.</para>
+///
+/// <para>The walk is kept as a fallback for a checkout shaped like neither layout, where the seed sits
+/// somewhere the resolver does not name. It is a fallback rather than the primary because a walk's
+/// answer depends on the working directory, so the same binary would behave differently depending on
+/// where it was launched from.</para>
+/// </summary>
 static string? FindUp(params string[] segments)
 {
+    foreach (var root in KeepverseRoots.Roots())
+    {
+        var candidate = Path.Combine(new[] { root }.Concat(segments).ToArray());
+        if (Directory.Exists(candidate)) return candidate;
+    }
+
     var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
     while (dir is not null)
     {
