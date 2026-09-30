@@ -6,6 +6,7 @@ using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Core.Effects.Atoms.Generation;
 using FusionRpg.Core.Power;
 using FusionRpg.Tools.FamilyExpandGen;
+using FusionRpg.Core.Workspace;
 
 // E43 family-expand generator (spec-family-expand.md §3.1, decided 2026-09-03 — the CreatureSpeciesGen
 // --check pattern). Reads every authored affix-family definition
@@ -440,8 +441,31 @@ Console.WriteLine(
     $"{result.Refusals.Count} refusal(s) reconciled, under {outRoot}");
 return 0;
 
+/// <summary>Find a directory ending in <paramref name="segments"/>, trying the detected workspace
+/// roots before walking up from the working directory.
+///
+/// <para><b>Why the roots come first.</b> Before the Keepverse split the walk alone was a complete
+/// answer, because <c>gk-core/data/tuning</c> and <c>gk-data/packs/fusion/data/seed</c> sat beside this tool. After the split
+/// <c>gk-core/data/tuning</c> is in gk-core and <c>gk-data/packs/fusion/data/seed</c> is in a gk-data pack, both siblings of
+/// gk-forge, so the walk from here reaches the workspace root and finds neither. That is why these
+/// generators exit 2 with "could not locate gk-core/data/tuning" in the split layout while the corpus they
+/// read is present and correct. <see cref="KeepverseRoots.Roots"/> is the single place that knows
+/// where the roots are, and consulting it here is what keeps ONE resolver instead of a private copy
+/// per tool - the same duplication that left ~175 hand-rolled walkers behind.
+///
+/// <para>The walk is kept, not replaced: it still answers in a legacy checkout, where the roots
+/// collapse to the repository root and this returns exactly what it always did, and it still
+/// answers for a path outside both roots. Returns <see langword="null"/> rather than throwing, so
+/// each caller's own "could not locate X; pass --Y" message is unchanged.
+/// </para></summary>
 static string? FindUp(params string[] segments)
 {
+    foreach (var root in KeepverseRoots.Roots(Directory.GetCurrentDirectory()))
+    {
+        var candidate = Path.Combine(new[] { root }.Concat(segments).ToArray());
+        if (Directory.Exists(candidate)) return candidate;
+    }
+
     var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
     while (dir is not null)
     {
@@ -451,3 +475,4 @@ static string? FindUp(params string[] segments)
     }
     return null;
 }
+

@@ -1,5 +1,6 @@
 using FusionRpg.Core.Creatures;
 using FusionRpg.Core.Creatures.Generation;
+using FusionRpg.Core.Workspace;
 
 // `redistribution-plan`'s own CLI (T1.7, spec-redistribution-plan.md §"Commands"/"Project structure").
 // Reads every real classified anchor under the seed root, plans the whole corpus in one pass
@@ -75,9 +76,17 @@ if (dumpRoot is null || !File.Exists(Path.Combine(dumpRoot, "type-base-stats.jso
     return 2;
 }
 
-// repoRoot is ".../data/tuning" — its parent is ".../data", so "generated/creatures" (not "gk-data/packs/fusion/data/generated/creatures").
-var outPath = outOverride ?? Path.Combine(
-    Directory.GetParent(tuningRoot)!.FullName, "generated", "creatures", "_species-build-plan.json");
+        // Derived from seedRoot, NOT from the tuning root, and that is the whole point of the change.
+        // Tuning and the generated corpus were siblings under one data/ in the monorepo, so deriving one
+        // from the other worked. After the Keepverse split gk-core/data/tuning is in gk-core while the generated
+        // corpus is in the gk-data pack, and deriving the output from tuning made this compare every species
+        // against a gk-core/data/generated/creatures that does not exist - 904 of them reported stale, which
+        // is an artefact of the wrong root and not drift. Walking up from seedRoot gives <content>/data in
+        // BOTH layouts, because seedRoot is <content>/data/seed/creatures/species in each, so a monorepo
+        // checkout resolves byte-for-byte what it always did and the split resolves the real corpus.
+        var contentDataDir = Path.GetFullPath(Path.Combine(seedRoot, "..", "..", ".."));
+        var outPath = outOverride ?? Path.Combine(
+            contentDataDir, "generated", "creatures", "_species-build-plan.json");
 
 var anchors = new List<AnchorRow>();
 foreach (var file in Directory.GetFiles(seedRoot, "*.json", SearchOption.AllDirectories).OrderBy(f => f, StringComparer.Ordinal))
@@ -324,8 +333,31 @@ static void PrintCorpusShare(SpeciesBuildResult result)
         Console.WriteLine($"  {id,-12} {share,4}‰");
 }
 
+/// <summary>Find a directory ending in <paramref name="segments"/>, trying the detected workspace
+/// roots before walking up from the working directory.
+///
+/// <para><b>Why the roots come first.</b> Before the Keepverse split the walk alone was a complete
+/// answer, because <c>gk-core/data/tuning</c> and <c>gk-data/packs/fusion/data/seed</c> sat beside this tool. After the split
+/// <c>gk-core/data/tuning</c> is in gk-core and <c>gk-data/packs/fusion/data/seed</c> is in a gk-data pack, both siblings of
+/// gk-forge, so the walk from here reaches the workspace root and finds neither. That is why these
+/// generators exit 2 with "could not locate gk-core/data/tuning" in the split layout while the corpus they
+/// read is present and correct. <see cref="KeepverseRoots.Roots"/> is the single place that knows
+/// where the roots are, and consulting it here is what keeps ONE resolver instead of a private copy
+/// per tool - the same duplication that left ~175 hand-rolled walkers behind.
+///
+/// <para>The walk is kept, not replaced: it still answers in a legacy checkout, where the roots
+/// collapse to the repository root and this returns exactly what it always did, and it still
+/// answers for a path outside both roots. Returns <see langword="null"/> rather than throwing, so
+/// each caller's own "could not locate X; pass --Y" message is unchanged.
+/// </para></summary>
 static string? FindUp(params string[] segments)
 {
+    foreach (var root in KeepverseRoots.Roots(Directory.GetCurrentDirectory()))
+    {
+        var candidate = Path.Combine(new[] { root }.Concat(segments).ToArray());
+        if (Directory.Exists(candidate)) return candidate;
+    }
+
     var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
     while (dir is not null)
     {
@@ -335,3 +367,4 @@ static string? FindUp(params string[] segments)
     }
     return null;
 }
+
