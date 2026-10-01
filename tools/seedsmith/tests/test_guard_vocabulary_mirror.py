@@ -231,10 +231,23 @@ class RealTreeTests(unittest.TestCase):
     own gate-flip test, `vocabulary-mirror` moved backlog -> gating in the same commit."""
 
     def test_the_real_manifest_is_fully_clean(self):
-        manifest = json.loads((_owned("scripts/vocabulary-mirrors.v1.json")).read_text(encoding="utf-8"))
+        # THE GUARD'S OWN ROOT, not this test file's. `check_pair` resolves an owner by joining its
+        # manifest `file` onto the root it is given, and `main()`'s default root is two directories
+        # up from the guard script -- gk-core, which is where every owner in this manifest lives
+        # (`src/FusionRpg.Core/...`, `src/FusionRpg.Contracts/...`, `data/tuning/...`). Handing it
+        # `REPO_ROOT` (gk-forge, the repository this test module happens to sit in after the split)
+        # left the `action-status` json-catalog owner unresolvable -- gk-forge carries no
+        # `data/tuning` -- so that one pair was never compared at all, and the assertion below was
+        # false about a check it never ran. The eight csharp-enum owners survive that root because
+        # the guard resolves them per file through `owning_base`; the catalog does not, because
+        # `resolve_latest_versioned_path` still joins the hint onto the root it is handed. A V4
+        # finding IS a finding in the list, so `[]` now also proves every pair resolved -- a
+        # strictly larger claim than before, not a smaller one.
+        root = gvm.find_repo_root()
+        manifest = json.loads((root / "scripts" / "vocabulary-mirrors.v1.json").read_text(encoding="utf-8"))
         all_findings = []
         for pair in manifest["pairs"]:
-            all_findings.extend(gvm.check_pair(REPO_ROOT, pair))
+            all_findings.extend(gvm.check_pair(root, pair))
         self.assertEqual(all_findings, [])
 
 

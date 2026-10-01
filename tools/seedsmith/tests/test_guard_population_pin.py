@@ -37,18 +37,48 @@ _spec.loader.exec_module(gpp)
 
 
 class PopulationPinFixture:
-    """A disposable `tests/` tree plus a real `src/` symbol and a real `gk-core/data/tuning/` file, so P3's
-    own owner/immutable-path resolution has something genuine to find."""
+    """A disposable Keepverse WORKSPACE -- `gk-core/` beside its siblings `gk-forge/` and `gk-data/`
+    -- carrying a real `src/` symbol and a real `gk-core/data/tuning/` file, so P3's own
+    owner/immutable-path resolution has something genuine to find.
+
+    WHY A WORKSPACE AND NOT A BARE TEMP DIRECTORY. P3 resolves a `closed-vocabulary` owner through
+    `forge_root(repo_root)`, which is a SIBLING lookup: it asks the resolver which repository sits
+    BESIDE this one. A bare temporary directory has no answer -- no ancestor qualifies -- and the
+    guard then reported the owner as "does not resolve to a real symbol" while skipping the planted
+    `src/` symbol it was looking for. So this fixture, as it stood, could not exercise P3's owner
+    resolution at all: every closed-vocabulary test in this file was measuring the guard's
+    blindness rather than its verdict. That regression is visible in the guard's own history -- the
+    two scan roots used to be `repo_root/src` and `repo_root/tools/seedsmith/seedsmith`, both under
+    the repository under test, and the split moved the second one to a sibling. The topology is what
+    the guard is written against, so the fixture grows it. The layout markers (`gk-core/` beside
+    `gk-data/`) are what the resolver uses to recognise a workspace at all; without them the sibling
+    lookup has nothing to resolve against.
+    """
 
     def __init__(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="fusionrpg-populationpin-"))
-        (self.root / "tests").mkdir()
+        self.base = Path(tempfile.mkdtemp(prefix="fusionrpg-populationpin-"))
+        self.root = self.base / "gk-core"     # the engine repository under test
+        self.forge = self.base / "gk-forge"   # its sibling: the guard's SECOND owner scan root
+        (self.base / "gk-data").mkdir()       # a workspace is gk-core/ beside gk-data/
+        (self.root / "tests").mkdir(parents=True)
         src_dir = self.root / "src"
         src_dir.mkdir()
         (src_dir / "RealOwner.cs").write_text("public enum RealOwner { A, B, C }\n", encoding="utf-8")
+        self.forge_src().mkdir(parents=True)
         tuning_dir = self.root / "data" / "tuning"
         tuning_dir.mkdir(parents=True)
         (tuning_dir / "widget.v1.json").write_text("{}", encoding="utf-8")
+
+    def forge_src(self) -> Path:
+        """The guard's second owner scan root: `<gk-forge>/tools/seedsmith/seedsmith`."""
+        return self.forge / "tools" / "seedsmith" / "seedsmith"
+
+    def write_forge_source(self, module_name: str, source: str) -> Path:
+        """A real module in the second scan root, so an owner declared ONLY there is findable."""
+        path = self.forge_src() / (module_name + ".py")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+        return path
 
     def write_test(self, relpath: str, content: str) -> Path:
         path = self.root / "tests" / relpath
@@ -60,7 +90,9 @@ class PopulationPinFixture:
         return gpp.scan(repo_root=self.root, scan_roots=("tests",))
 
     def close(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
+        # The BASE, not the repository under test: the workspace markers and the gk-forge sibling
+        # are siblings of `root`, and removing `root` alone would leave both behind in TEMP.
+        shutil.rmtree(self.base, ignore_errors=True)
 
 
 class GuardPopulationPinTests(unittest.TestCase):
@@ -176,6 +208,33 @@ public class Second {
         findings = self.fx.scan()
         self.assertEqual(len(findings["P2"]), 1)
         self.assertIn("RealOwner", findings["P2"][0][2])
+
+    def test_P3_an_owner_declared_only_in_the_forge_scan_root_resolves(self) -> None:
+        # The second owner scan root is a SIBLING of the repository under test, so no `..` hop from
+        # a gk-core subdirectory reaches it. The walk-up that stood there before the split returned
+        # a path that had not existed since, which meant every owner declared over there went
+        # unresolved and the guard said so with a P3 finding against real code -- "half the audit
+        # was scanning nothing". This pins that root: the symbol exists NOWHERE under the engine
+        # repository, so a guard that scans only `repo_root/src` fails here.
+        self.fx.write_forge_source("forge_only_owner", "class ForgeOnlyOwner:\n    VALUES = ('a', 'b')\n")
+        self.fx.write_test("ForgeOwned.cs", """
+using Xunit;
+public class ForgeOwned {
+    void T() {
+        var repoRoot = FindRepoRoot();
+        // pin: closed-vocabulary ForgeOnlyOwner
+        Assert.Equal(268, ForgeOnlyOwner.AllRegistered.Count);
+    }
+}
+""")
+        # The claim is only worth anything if the symbol really is absent from the root under test,
+        # so a future fixture change cannot quietly make this test vacuous.
+        self.assertFalse(
+            any("ForgeOnlyOwner" in p.read_text(encoding="utf-8", errors="ignore")
+                for p in (self.fx.root / "src").rglob("*") if p.is_file()),
+            "the owner leaked into the engine repository -- this test no longer discriminates")
+        findings = self.fx.scan()
+        self.assertEqual(findings["P3"], [])
 
     def test_P3_a_closed_vocabulary_marker_naming_a_nonexistent_owner_fails(self) -> None:
         self.fx.write_test("Bogus.cs", """
