@@ -337,8 +337,22 @@ class RealTreeTests(unittest.TestCase):
     """
 
     def test_the_real_scan_runs_and_produces_a_report(self) -> None:
+        # NOT REPO_ROOT. This file lives in gk-forge because that is where the seedsmith suite lives, so
+        # REPO_ROOT is gk-forge -- and gk-forge has NO docs/ directory. The documents are gk-workflow's.
+        # Measured: gk-forge/docs does not exist, workspace/docs has 24 entries, and this assertion was
+        # failing on its own precondition because the scan enumerated zero documents.
+        #
+        # The anchor is the repository carrying the AUDIT, derived from CHECKER_PATH -- already resolved
+        # through `owning_base` for a FILE. Deliberately not `owning_base("docs")`: `docs` is a directory
+        # present in more than one repository (gk-core has one entry, gk-workflow 24), so nearest-match-wins
+        # returns gk-core and the scan would still find almost nothing. Resolve per FILE, never per
+        # directory.
+        docs_root = CHECKER_PATH.parent.parent
+        self.assertTrue((docs_root / "docs").is_dir(),
+                        f"the repository carrying the audit ({docs_root}) has no docs/ directory, so this "
+                        f"test has no tree to scan and its assertions would prove nothing")
         cwd = os.getcwd()
-        os.chdir(REPO_ROOT)
+        os.chdir(docs_root)
         try:
             findings, checked, doc_count = adc.audit("docs/")
         finally:
