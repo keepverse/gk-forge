@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 from seedsmith.adapters.trees.plan import emit as plan_emit  # noqa: E402
 from seedsmith.adapters.trees.plan import tuning as plan_tuning  # noqa: E402
 from seedsmith.adapters.trees.plan import vocabulary  # noqa: E402
@@ -20,10 +21,14 @@ from seedsmith.adapters.trees.plan.ids import IdMintError  # noqa: E402
 
 
 def real_seed_root() -> Path:
-    dir_ = Path(__file__).resolve()
-    while dir_ != dir_.parent and not (dir_ / "CONTRIBUTING.md").exists():
-        dir_ = dir_.parent
-    return dir_ / "data" / "seed"
+    """The REAL content pack's `data/seed` - NOT a path under this repository.
+
+    This walked up to the nearest `CONTRIBUTING.md` and joined `data/seed` onto it. Measured across all nine
+    repositories, `CONTRIBUTING.md` exists in gk-workflow and NOWHERE ELSE, so the walk always landed on the
+    workspace root - which carries neither `data/seed` (gk-data's pack) nor `data/tuning` (gk-core's). A test
+    whose stated contract is to read the real corpus was reading a path where the corpus is not.
+    """
+    return seed_root()
 
 
 class RosterAndVocabularyTests(unittest.TestCase):

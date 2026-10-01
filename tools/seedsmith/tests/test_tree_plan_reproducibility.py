@@ -31,25 +31,34 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from seedsmith.workspace_roots import core_root, seed_root  # noqa: E402
 from seedsmith.adapters.trees.plan import emit as plan_emit  # noqa: E402
 from seedsmith.adapters.trees.plan import gates  # noqa: E402
 from seedsmith.adapters.trees.plan import invariants  # noqa: E402
 from seedsmith.adapters.trees.plan import tuning as plan_tuning  # noqa: E402
 
 
-def real_repo_root() -> Path:
-    dir_ = Path(__file__).resolve()
-    while dir_ != dir_.parent and not (dir_ / "CONTRIBUTING.md").exists():
-        dir_ = dir_.parent
-    return dir_
-
-
 def real_seed_root() -> Path:
-    return real_repo_root() / "data" / "seed"
+    """The REAL content pack's `data/seed` - NOT a path under this repository.
+
+    This used to walk up to the nearest `CONTRIBUTING.md` and join `data/seed` onto it. Measured across all
+    nine repositories, `CONTRIBUTING.md` exists in gk-workflow and NOWHERE ELSE, so that walk always landed on
+    the workspace root - which carries neither `data/seed` (gk-data's pack) nor `data/tuning` (gk-core's).
+    Every test that read the real corpus through it was reading a path that does not exist.
+
+    `real_repo_root` is gone rather than left in place: nothing else used it, and a helper that returns the
+    wrong root is a trap for the next reader rather than dead code.
+    """
+    return seed_root()
 
 
 def real_tuning_root() -> Path:
-    return real_repo_root() / "data" / "tuning"
+    """The REAL `data/tuning`, which is gk-core's.
+
+    The same reading `seedsmith/ladders.py` states in one line as `REPO_ROOT = core_root()`, with the comment
+    explaining that `data/tuning` has always meant gk-core's and never gk-forge's.
+    """
+    return core_root() / "data" / "tuning"
 
 
 _MIRROR_RELATIVE_PATHS = (

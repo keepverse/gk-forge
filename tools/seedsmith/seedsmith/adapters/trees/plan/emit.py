@@ -37,18 +37,15 @@ MANIFEST_SCHEMA_VERSION = 1
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
-# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
-# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
-# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
-# load-bearing - `owning_base` returns None for a path no repository carries, where
-# `content_root()` would RAISE.
+# `data/seed/**` is gk-data's content pack, not gk-forge's, and the DIRECTORY cannot be resolved:
+# `owning_base` answers by testing `(base / rel).exists()`, so a directory answers unreliably. gk-forge
+# tracks ZERO files under data/ but holds an untracked `data/seed/creatures/` of three files, and that
+# alone is enough for it to claim `data/seed` - measured: `_owned("data/seed")` returned gk-forge for 10
+# call sites in this file while `git ls-files` says gk-data owns it. `seed_root` asks `content_root()`
+# where the pack IS, so it cannot be misdirected that way. An explicit `seed_root` still short-circuits:
+# a caller supplying one is stating where the data is.
 
-from ....workspace_roots import owning_base  # noqa: E402
-
-
-def _owned(relative: str) -> "Path":
-    """The repository carrying `relative`, joined to it; this one when none carries it."""
-    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+from ....workspace_roots import seed_root as default_seed_root  # noqa: E402
 
 
 # docs/architecture/numeric-types.md's numeric-overflow rule: widen before multiplying. Same explicit `long`-bound stand-in
@@ -173,7 +170,7 @@ def might_tree_spec(seed_root: "Path | None" = None) -> TreeSpec:
     (`gk-data/packs/fusion/data/seed/passive-tree/gate-evidence.v1.json`), never hand-typed here — this function used to
     write `gate_state="carrier"` as a literal, which is exactly the "the planner resolves a
     quantity itself" defect §7.1 forbids."""
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     evidence = gates_mod.load_gate_evidence(root)
     gate_index_kind = "aptitudePoints"
     gate_state = gates_mod.resolve_gate_state(gate_index_kind, evidence)
@@ -202,7 +199,7 @@ def primary_tree_spec(aptitude_id: str, seed_root: "Path | None" = None) -> Tree
     not exactly one of the 12 `category="primary"` trees the roster's own `aptitudes` tuple names —
     a typo here must refuse loudly, not mint a plan for a tree that does not exist.
     """
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     roster = load_roster(root)
     try:
         ordinal = roster.aptitudes.index(aptitude_id)
@@ -235,7 +232,7 @@ def elemental_tree_spec(element_id: str, seed_root: "Path | None" = None) -> Tre
     second, hand-picked number. Raises `ValueError` (never a silent guess) if `element_id` is not in
     the roster at all.
     """
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     roster = load_roster(root)
     try:
         ordinal = roster.elements.index(element_id)
@@ -265,7 +262,7 @@ def status_tree_spec(status_id: str, seed_root: "Path | None" = None) -> TreeSpe
     never `status_applied.<id>@Commander` or any other scoped form. Raises `ValueError` if
     `status_id` is not in the roster at all.
     """
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     roster = load_roster(root)
     try:
         ordinal = roster.statuses.index(status_id)
@@ -322,7 +319,7 @@ def species_tree_spec(species_id: str, ordinal: int, mechanical_favour: "tuple[s
             f"{species_id!r}: mechanical_favour {mechanical_favour!r} has an empty member — "
             f"refused, never a partial lock")
 
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     evidence = gates_mod.load_gate_evidence(root)
     gate_index_kind = "aptitudePoints"
     gate_state = gates_mod.resolve_gate_state(gate_index_kind, evidence)
@@ -455,7 +452,7 @@ def build_plan(spec: TreeSpec, tuning: dict, existing_plan: "dict | None" = None
     except invariants_mod.PlanInvariantError as ex:
         raise EmitError(str(ex)) from ex
 
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     roster = load_roster(root)
     vocab = load_property_vocabulary(TIER_COUNT, root)
     creature_families, families_pending = load_family_roster_or_pending(root)
@@ -674,7 +671,7 @@ def _provenance_tuning(tuning_root: "Path | None" = None) -> "list[dict]":
 
 
 def manifest_path(seed_root: "Path | None" = None) -> Path:
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     return root / "passive-tree" / "plan.v1.json"
 
 
@@ -686,7 +683,7 @@ def build_manifest(specs: "list[TreeSpec]", tuning: dict, seed_root: "Path | Non
     node id anywhere in the corpus.
 
     Returns `(manifest, {treeId: tree_plan})` — the caller decides whether to write either."""
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     trees_dir = root / "passive-tree" / "plan"
 
     if not specs:
@@ -783,7 +780,7 @@ def emit_manifest(specs: "list[TreeSpec]", tuning: dict, seed_root: "Path | None
                   tuning_root: "Path | None" = None) -> Path:
     """Writes the manifest and every per-tree file it indexes, all via `canonical_json_bytes`.
     Returns the manifest's path."""
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     manifest, tree_plans = build_manifest(specs, tuning, seed_root=root, tuning_root=tuning_root)
     trees_dir = root / "passive-tree" / "plan"
     trees_dir.mkdir(parents=True, exist_ok=True)
@@ -805,7 +802,7 @@ def check_manifest(specs: "list[TreeSpec]", tuning: dict, seed_root: "Path | Non
     `emittedUtc` changes on every run by design, and diffing it would make every `--check` report
     drift regardless of content (Reproducibility: "`emittedUtc` is excluded from `planHash`, or
     every run is drift" — the same reasoning applies one level up, to `--check`'s own byte diff)."""
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or default_seed_root()
     m_path = manifest_path(root)
     if not m_path.exists():
         raise EmitError(f"EXIT_CANNOT_RUN: no committed manifest at {m_path} to check against")
