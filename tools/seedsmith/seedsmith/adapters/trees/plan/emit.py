@@ -45,6 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # where the pack IS, so it cannot be misdirected that way. An explicit `seed_root` still short-circuits:
 # a caller supplying one is stating where the data is.
 
+from ....workspace_roots import core_root  # noqa: E402
 from ....workspace_roots import seed_root as default_seed_root  # noqa: E402
 
 
@@ -550,7 +551,7 @@ def build_plan(spec: TreeSpec, tuning: dict, existing_plan: "dict | None" = None
 
 
 def plan_path(tree_id: str) -> Path:
-    return _owned("data/seed/passive-tree/plan") / f"{tree_id}.v1.json"
+    return default_seed_root() / "passive-tree" / "plan" / f"{tree_id}.v1.json"
 
 
 def emit(spec: TreeSpec, tuning: dict, seed_root: "Path | None" = None) -> Path:
@@ -657,7 +658,7 @@ def _provenance_tuning(tuning_root: "Path | None" = None) -> "list[dict]":
     files, read from each file's own `version` field — never a filename-derived guess (R6's
     `classes.v2.json` trap is a different module's job to enforce; this only reports what the file
     itself claims)."""
-    root = tuning_root or (_owned("data/tuning"))
+    root = tuning_root or (core_root() / "data" / "tuning")
     entries: "list[dict]" = []
     for domain, filename in _MANIFEST_TUNING_FILES:
         path = root / filename
