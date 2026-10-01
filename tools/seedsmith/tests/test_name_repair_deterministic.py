@@ -365,9 +365,39 @@ class TempCopyAcceptanceTests(unittest.TestCase):
                 groups.setdefault(key, []).append((row.get("id"), row.get("name")))
         return {key: rows for key, rows in groups.items() if len(rows) > 1}
 
+    def _plant_collisions(self, count: int = 3) -> int:
+        """Force `count` duplicate display names into the temp copy and return how many rows were moved.
+
+        ⛔ WHY THIS EXISTS. This test used to assert "the live corpus is expected to carry collisions for
+        this repair", which made its premise a property of SHIPPED CONTENT rather than of the code under
+        test. The repair was then run against the real corpus and did its job, so the corpus stopped
+        carrying collisions and the test failed having verified nothing - the same rotted-premise shape as
+        `test_item_gen_live_endpoint`, and the second time this session.
+
+        The fix is the same: plant the defect. Two rows are given one shared name per group, using rows
+        that already exist, so the derivation has real rows to rename on any machine and after any future
+        content ship. The assertion that follows is about the CODE, not about what happens to be shipped.
+        """
+        planted = 0
+        for path in sorted(self.root.glob("**/materials.json")):
+            document = json.loads(path.read_text(encoding="utf-8"))
+            rows = [r for r in document.get("entries") or ()
+                    if isinstance(r, dict) and isinstance(r.get("name"), str)]
+            for index in range(count):
+                first, second = rows[index * 2], rows[index * 2 + 1]
+                first["name"] = f"Planted Duplicate Number {index + 1}"
+                second["name"] = f"Planted Duplicate Number {index + 1}"
+                planted += 2
+            path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8", newline="")
+            break
+        return planted
+
     def test_the_derivation_clears_both_keys_on_a_temp_copy_of_the_real_corpus(self) -> None:
+        self._plant_collisions()
         before = name_repair.collision_groups(items_root=self.root)
-        self.assertTrue(before, "the live corpus is expected to carry collisions for this repair")
+        self.assertTrue(before, "the planted collisions must be visible to the authority, or this "
+                                "asserts nothing")
         report = name_repair.repair_names_deterministically(items_root=self.root, write=True)
         self.assertEqual(len(report["derived"]), sum(len(g.get("members") or ()) - 1
                                                      for g in before if len(g.get("members") or ()) > 1),
