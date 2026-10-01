@@ -27,10 +27,14 @@ from seedsmith.adapters.items.basetypegen import tuning as tuning_mod
 from seedsmith.pipeline.llm_caller import LlmCallerConfig
 from seedsmith.pipeline.model import audit_schema
 from seedsmith.pipeline.run_ledger import RunLedger
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 
-REAL_CORPUS_DIR = (
-    Path(__file__).resolve().parents[3] / "data" / "seed" / "items" / "base-types"
-)
+# ⛔ `data/seed/**` is gk-data's content pack and gk-forge carries neither it nor
+# `data/tuning/**`, so `parents[3] / "data" / "seed" / ...` -- which resolves to gk-forge -- named a
+# directory that is not there and read every "real corpus" assertion below as an empty corpus.
+# `seed_root()` is the accessor for a DIRECTORY under the pack and returns a non-existent path
+# rather than raising when the pack is absent, which is what keeps this module-level constant safe.
+REAL_CORPUS_DIR = seed_root() / "items" / "base-types"
 
 
 def _load_real(fname: str) -> dict:

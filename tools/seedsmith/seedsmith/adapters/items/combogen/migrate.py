@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ....workspace_roots import owning_base  # noqa: E402
+from ....workspace_roots import owned_path, owning_base  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -199,9 +199,25 @@ def legality_report(tuning: ComboTuning, *, host_roles: "tuple[str, ...]",
 
 
 def missing_sites(root: "Path | None" = None) -> "list[str]":
-    """Any file in `MIGRATION_SITES` that no longer exists. Empty is the healthy answer."""
-    base = root or REPO_ROOT
-    return [rel for rel, _ in MIGRATION_SITES if not (base / rel).exists()]
+    """Any file in `MIGRATION_SITES` that no longer exists. Empty is the healthy answer.
+
+    ⛔ Every rel resolved against ONE base is wrong, because `MIGRATION_SITES` is not all one
+    repository. Six entries are gk-forge's own `tools/seedsmith/**` sources, but
+    `data/seed/items/_registry/naming.v1.json` is gk-data's content pack and gk-forge carries
+    neither `data/seed/**` nor `data/tuning/**`. Joining every rel to `REPO_ROOT` therefore reported
+    that one file missing on a machine where it is present, so the migration plan read as broken
+    for the one site the `socket-word` retirement actually left behind.
+
+    Resolution is PER FILE through `owned_path`, never per directory: `owning_base` asks
+    `(base / rel).exists()`, which needs a specific file, and gk-forge holds an untracked
+    `data/seed/creatures/` that alone makes a directory lookup answer "gk-forge carries
+    data/seed". The fail-closed fallback is unchanged — a rel no repository carries comes back as the
+    caller spelled it, so a genuinely moved file is still reported MISSING rather than silently
+    satisfied somewhere else.
+    """
+    base = Path(root) if root is not None else REPO_ROOT
+    return [rel for rel, _ in MIGRATION_SITES
+            if not owned_path(rel, base).exists()]
 
 
 # ── SSH2.3: the `--write` verb ─────────────────────────────────────────────────────────────────

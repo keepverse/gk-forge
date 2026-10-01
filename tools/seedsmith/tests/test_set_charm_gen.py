@@ -61,7 +61,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -1808,11 +1808,14 @@ class NameCollisionReaskTests(unittest.TestCase):
         graph had already accepted the answer. The captured answer's members are real, so the tree they must
         bind against has to be real too. Only the OUTPUT is isolated.
         """
-        import seedsmith
-        # seedsmith/__init__.py is <repo>/tools/seedsmith/seedsmith/__init__.py, so parents[3] is the repo
-        # root. Derived from the package rather than a new registry accessor, because the alternative here
-        # was a module-level constant that duplicates a path the package already knows.
-        return Path(seedsmith.__file__).resolve().parents[3] / "data" / "seed" / "items"
+        # ⛔ `data/seed/**` is gk-data's content pack; gk-forge carries neither it nor
+        # `data/tuning/**`. `parents[3]` is the gk-forge root, so this join named a directory that
+        # is not there -- and `load_base_type_candidates` against a missing directory is an EMPTY
+        # vocabulary, not an error, so the batch died with "no non-unique base type exists for
+        # (armament-primary, plant)" rather than saying the path was wrong. `seed_root()` is the
+        # accessor for a directory under the pack, and it returns a non-existent path rather than
+        # raising when the pack is absent, so absence stays fail-closed here.
+        return seed_root() / "items"
 
     @staticmethod
     def _captured(name: str) -> dict:
