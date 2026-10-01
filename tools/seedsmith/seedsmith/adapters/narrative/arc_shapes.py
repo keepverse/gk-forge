@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ...workspace_roots import content_root
+from ...workspace_roots import content_root, core_root
 from . import character_vocab, storylet_vocab
 from .token_grammar import RESERVED_SUFFIXES, ROLE_ID_RE
 
@@ -83,8 +83,21 @@ def _refuse(message: str) -> "ValueError":
     return ValueError(message)
 
 
-def _path(rel: str, path: "Path | str | None") -> Path:
-    return Path(path) if path is not None else content_root() / rel
+def _path(rel: str, path: "Path | str | None" = None, owner=None) -> Path:
+    """`rel` from `path` when a caller injects one, else from the repository that OWNS it.
+
+    The default owner is `content_root()`, which is the right answer ONLY for `data/seed/**` and
+    `data/generated/**` — the pack. The Keepverse split gave `data/tuning/**` and `src/**` to gk-core
+    and `docs/**` to the workspace, so a constant naming one of THOSE joined onto the pack names a file
+    that is not there: the read raises `FileNotFoundError` three frames below the join that was wrong,
+    reading as a missing data file rather than a wrong base.
+
+    `owner` is the ACCESSOR, not a resolved path, so an injected `path` never triggers a root lookup it
+    does not need — a planted fixture that has no qualifying ancestor must not die in the resolver.
+    """
+    if path is not None:
+        return Path(path)
+    return (content_root() if owner is None else owner()) / rel
 
 
 def load_arc_shapes(path: "Path | str | None" = None) -> "dict[str, dict]":
@@ -440,7 +453,7 @@ def load_spine_frame(path: "Path | str | None" = None) -> dict:
 def scene_beats_cap(path: "Path | str | None" = None) -> int:
     """`scene.maxBeatsPerScene` from the story-scene tuning file — the player's own authored-content
     bound, read rather than copied."""
-    tuning_path = _path(SCENE_TUNING_REL, path)
+    tuning_path = _path(SCENE_TUNING_REL, path, core_root)
     document = json.loads(tuning_path.read_text(encoding="utf-8"))
     value = (document.get("scene") or {}).get("maxBeatsPerScene")
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:

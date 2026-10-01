@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ...workspace_roots import content_root
+from ...workspace_roots import content_root, core_root, workspace_root
 from ..dungeon.schema import ELEMENTS, EVENT_KIND
 
 __all__ = [
@@ -76,8 +76,21 @@ _PATTERN_KEYS = frozenset({"id", "slots", "fitsKinds", "description", "negative"
 _SLOT_KEYS = frozenset({"choiceKind", "outcomes", "position"})
 
 
-def _path(rel: str, path: "Path | str | None") -> Path:
-    return Path(path) if path is not None else content_root() / rel
+def _path(rel: str, path: "Path | str | None" = None, owner=None) -> Path:
+    """`rel` from `path` when a caller injects one, else from the repository that OWNS it.
+
+    The default owner is `content_root()`, which is right ONLY for `data/seed/**` — the pack. Two
+    constants here are not pack files and name a different repository each: `PREDICATE_NODE_REL` is
+    gk-core's `src/**`, `LOOPS_DOC_REL` is the workspace's `docs/**`. Joined onto the pack they named a
+    path that is not there, and the read raised `FileNotFoundError` from inside a reader that had every
+    right to be reading a real file.
+
+    `owner` is the ACCESSOR, not a resolved path, so an injected `path` never triggers a root lookup it
+    does not need — a planted fixture with no qualifying ancestor must not die in the resolver.
+    """
+    if path is not None:
+        return Path(path)
+    return (content_root() if owner is None else owner()) / rel
 
 
 def _read(rel: str, key: str, allowed: "frozenset[str]", path: "Path | str | None" = None) -> "list[dict]":
@@ -274,7 +287,7 @@ def proposed_leaves(path: "Path | str | None" = None) -> "tuple[str, ...]":
 def built_leaves(path: "Path | str | None" = None) -> "tuple[str, ...]":
     """The `LeafId` members the RUNTIME actually has, parsed from `PredicateNode.cs` — the file, never a
     comment or a doc, is the authority on which leaves are built."""
-    source = _path(PREDICATE_NODE_REL, path).read_text(encoding="utf-8")
+    source = _path(PREDICATE_NODE_REL, path, core_root).read_text(encoding="utf-8")
     match = re.search(r"enum\s+LeafId\s*\{(?P<body>[^}]*)\}", source, re.S)
     if match is None:
         raise ValueError(f"{PREDICATE_NODE_REL}: no LeafId enum found — the runtime owns this vocabulary")
@@ -423,7 +436,7 @@ def value_note_sources() -> "dict[str, list[str]]":
 
 def loop_headings(path: "Path | str | None" = None) -> "tuple[str, ...]":
     """The loop headings of `docs/guide/the-loops.md`, parsed from the document (the loops SSOT)."""
-    source = _path(LOOPS_DOC_REL, path).read_text(encoding="utf-8")
+    source = _path(LOOPS_DOC_REL, path, workspace_root).read_text(encoding="utf-8")
     return tuple(re.findall(r"^### (.+)$", source, re.M))
 
 

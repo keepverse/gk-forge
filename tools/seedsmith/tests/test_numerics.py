@@ -25,6 +25,13 @@ from seedsmith.numerics import (  # noqa: E402
     solve_base_share,
 )
 from seedsmith.numerics.formulas import primary_channel_m1, round_legible  # noqa: E402
+from seedsmith.workspace_roots import owned_path  # noqa: E402
+
+#: The forge repository. `data/seed/**` is gk-data's content pack and gk-forge carries neither, so
+#: a `REPO_ROOT / "data" / "seed"` join names a path in a repository that does not have it -- the file
+#: is reported missing while sitting present two directories away. The seed file below is therefore
+#: resolved per FILE through `owned_path`, never by joining the local root.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class CommittedExampleTests(unittest.TestCase):
@@ -139,10 +146,12 @@ class LargestRemainderTests(unittest.TestCase):
 
     def test_real_role_budget_weights_sum_exactly(self) -> None:
         # core.v1.json roles.list budgetWeightMilli, read live rather than hand-copied.
+        # Resolved per file against its owner -- `data/seed/items/_registry/core.v1.json` lives in
+        # gk-data's pack, and joining it onto this repository's root names a file it does not have.
         weights = {r["roleId"]: r["budgetWeightMilli"]
                   for r in __import__("json").loads(
-                      (Path(__file__).resolve().parents[3] / "data" / "seed" / "items"
-                       / "_registry" / "core.v1.json").read_text(encoding="utf-8"))["roles"]["list"]}
+                      owned_path("data/seed/items/_registry/core.v1.json", REPO_ROOT)
+                      .read_text(encoding="utf-8"))["roles"]["list"]}
         result = largest_remainder_apportion(1000, weights)
         self.assertEqual(sum(result.values()), 1000)
 
