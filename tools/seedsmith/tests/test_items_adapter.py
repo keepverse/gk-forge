@@ -249,7 +249,7 @@ class LiveCorpusIntegrationTests(unittest.TestCase):
         """
         reported = _render_collisions(_name_collisions(LIVE_ITEMS_ROOT))
         self.assertEqual(
-            reported, {},
+            reported, set(),
             f"{len(reported)} normalized-name collision group(s) under {LIVE_ITEMS_ROOT}. Each is one "
             f"idea claimed by more than one row, so every row past the first must be renamed "
             f"(see seedsmith `repair-names`); the first few: {sorted(reported)[:5]}")
