@@ -208,11 +208,30 @@ public class SeedScannerTests : IDisposable
         Assert.True(File.Exists(generatorPath), $"seedsmith's affix generator moved or was renamed: {generatorPath}");
 
         var source = File.ReadAllText(generatorPath);
-        var match = System.Text.RegularExpressions.Regex.Match(
+        // EITHER spelling, because the split changed which one is CORRECT and the coupling being pinned is
+        // not the spelling. `REPO_ROOT / "data" / "seed" / "effects" / "affixes"` is what the line said when
+        // `data/seed` lived in the same repository as the generator. After the split the corpus is the
+        // gk-data pack's, so the line reads `_owned("data/seed/effects/affixes")` — asking for `REPO_ROOT`
+        // again would pin a path that cannot exist, and that is exactly what this test did after the
+        // rewrite. The resolved owner is asserted below, which the pre-split form could not express at
+        // all, so this is a STRONGER coupling than the one it replaces rather than a looser one.
+        var legacy = System.Text.RegularExpressions.Regex.IsMatch(
             source, @"OUTPUT_DIR\s*=\s*REPO_ROOT\s*/\s*""data""\s*/\s*""seed""\s*/\s*""effects""\s*/\s*""affixes""");
-        Assert.True(match.Success,
-            "seedsmith's OUTPUT_DIR no longer reads REPO_ROOT/data/seed/effects/affixes — " +
-            "update SeedScanner.OwnedFolders's \"effects/affixes\" entry to match, in the same change");
+        var owned = System.Text.RegularExpressions.Regex.IsMatch(
+            source, @"OUTPUT_DIR\s*=\s*_owned\(\s*""data/seed/effects/affixes""\s*\)");
+        Assert.True(legacy ^ owned,
+            "seedsmith's OUTPUT_DIR no longer reads data/seed/effects/affixes — neither the "
+            + "`REPO_ROOT / \"data\" / \"seed\" / ...` form nor the `_owned(\"data/seed/effects/affixes\")` "
+            + "form the post-split rewrite produces. If both are gone the folder is written somewhere "
+            + "nothing sweeps; if both are present the resolution is ambiguous. Update this pin and "
+            + "SeedScanner.OwnedFolders together — that is what it is for.");
+        // The folder seedsmith writes is the CONTENT PACK's, so the importer's swept folder and
+        // seedsmith's output dir agree about a path in a repository neither of them is. Asserted as the
+        // directory's EXISTENCE rather than as a string join, because a join of two accessors is a
+        // tautology: it would pass for any value of either.
+        Assert.True(Directory.Exists(Path.Combine(KeepverseRoots.Content(), "data", "seed", "effects", "affixes")),
+            $"the pack does not carry the folder seedsmith writes: " +
+            $"{Path.Combine(KeepverseRoots.Content(), "data", "seed", "effects", "affixes")}");
 
         Assert.Contains("effects/affixes", SeedScanner.OwnedFolders);
     }
@@ -231,11 +250,21 @@ public class SeedScannerTests : IDisposable
         Assert.True(File.Exists(generatorPath), $"seedsmith's species-effects generator moved or was renamed: {generatorPath}");
 
         var source = File.ReadAllText(generatorPath);
-        var match = System.Text.RegularExpressions.Regex.Match(
+        // Same either-spelling pin as the affix case above, for the same reason: the corpus moved to the
+        // gk-data pack, so `REPO_ROOT / "data" / "seed" / "creatures" / "species-effects"` became
+        // `_owned("data/seed/creatures/species-effects")`. XOR rather than OR, so neither a vanished
+        // write path nor an ambiguous double resolution can pass.
+        var legacy = System.Text.RegularExpressions.Regex.IsMatch(
             source, @"OUTPUT_DIR\s*=\s*REPO_ROOT\s*/\s*""data""\s*/\s*""seed""\s*/\s*""creatures""\s*/\s*""species-effects""");
-        Assert.True(match.Success,
-            "seedsmith's species-effects OUTPUT_DIR no longer reads REPO_ROOT/data/seed/creatures/species-effects — " +
-            "update SeedScanner.OwnedFolders's \"creatures/species-effects\" entry to match, in the same change");
+        var owned = System.Text.RegularExpressions.Regex.IsMatch(
+            source, @"OUTPUT_DIR\s*=\s*_owned\(\s*""data/seed/creatures/species-effects""\s*\)");
+        Assert.True(legacy ^ owned,
+            "seedsmith's species-effects OUTPUT_DIR no longer reads data/seed/creatures/species-effects — "
+            + "update SeedScanner.OwnedFolders's \"creatures/species-effects\" entry to match, in the same change");
+
+        Assert.True(Directory.Exists(Path.Combine(KeepverseRoots.Content(), "data", "seed", "creatures", "species-effects")),
+            "the pack does not carry the species-effects folder: "
+            + Path.Combine(KeepverseRoots.Content(), "data", "seed", "creatures", "species-effects"));
 
         Assert.Contains("creatures/species-effects", SeedScanner.OwnedFolders);
     }

@@ -80,11 +80,36 @@ if (files.Count == 0)
     // Conditional on the file being there, deliberately. A seed root may legitimately be partial —
     // ValidateGateCiTests plants a single atom into a temp root and asserts the tool's exit code for
     // it — and requiring the registry would invent a requirement that root does not have, turning a
-    // structural-defect report into "could not start". Nothing is weakened by this: if an import
-    // actually reaches the reader with the hub unconfigured, `LeadNamesHub.Current` throws its own
-    // named refusal, which is the fail-closed behaviour and is pinned in Core. A missing registry
-    // beside a server or the Injector still throws there, because those hosts pass the path they own.
+    // structural-defect report into "could not start".
+    //
+    // MEASURED 2026-10-01, and the reasoning below was wrong in a way that matters. The original comment
+    // said "if an import actually reaches the reader with the hub unconfigured, LeadNamesHub.Current
+    // throws its own named refusal, which is the fail-closed behaviour" — as though a partial root never
+    // got that far. It always does: `new RpgStore(freshDir)` seeds a player row when `players` is empty,
+    // and that insert reads the lead-names registry through `RpgStore.OnboardingPlayerName()`. RpgStore's
+    // own comment states the precondition outright — "the value is read at the insert, which is after boot
+    // configured the hub; THE CALLER MUST HAVE CONFIGURED IT". So every planted-root import died with
+    //     the import failed and was rolled back: LeadNamesHub.Configure(...) has not run
+    // before validation ever ran, and both ValidateGateCiTests cases failed for that reason.
+    //
+    // Failing closed is right for a HOST and wrong here, and the difference is who owns the path. A server
+    // or the Injector passes the path it owns and must throw if that file is missing — that is the
+    // fail-closed behaviour, and it is unchanged. This tool is handed an arbitrary seed root, so when
+    // that root carries no registry it falls back to the CONTENT PACK's, which is the same committed file
+    // a host would have used. Nothing is weakened: a root that has a registry still uses its own, and the
+    // fallback is a real committed file rather than a default.
+    //
+    // The fallback is also the only way the registry could ever arrive, because copying the real
+    // registry INTO a planted root does not work: the scanner then treats it as a content file and
+    // refuses it with `UnknownKind — kind ""`. Measured, 2026-10-01.
     var leadNamesPath = Path.Combine(seedRoot, "narrative", "_registry", "names.en.v1.json");
+    if (!File.Exists(leadNamesPath))
+    {
+        var packNames = Path.Combine(FusionRpg.Core.Workspace.KeepverseRoots.Content(), "data",
+                                     "seed", "narrative", "_registry", "names.en.v1.json");
+        if (File.Exists(packNames))
+            leadNamesPath = packNames;
+    }
     if (File.Exists(leadNamesPath))
     {
         try
