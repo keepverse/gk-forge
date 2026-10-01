@@ -1353,6 +1353,53 @@ def _cmd_items_repair_name_grammar(args: argparse.Namespace) -> int:
     return EXIT_CLEAN
 
 
+def _cmd_items_repair_names_derived(args: argparse.Namespace, root: Path,
+                                    kind: str, label: str) -> int:
+    """Apply the DETERMINISTIC repair: each losing row is renamed from its own fields.
+
+    This is the path that needs no model. A duplicate display name is a fact about two rows, not a
+    writing task, so the replacement is derived from the row's own identity - its slot ordinal and the
+    concept its `scopeKey` / `speciesId` carries - and validated against the C# authority
+    (`--normalize-names` for uniqueness, `--check-names` for grammar) rather than against a Python
+    re-implementation of `naming.v1.json`.
+
+    The production tree is refused exactly as the model branch refuses it, and for the same reason: a
+    corpus write is not something a flag should make incidental.
+    """
+    from ..adapters.items.setgen import name_repair  # noqa: PLC0415 - mirrors the sibling's local import
+    if not args.write:
+        print(json.dumps({"write": False, "derive": True,
+                          **({"kind": kind} if kind else {}),
+                          "note": "dry run - pass --write to apply"},
+                         ensure_ascii=False, indent=2))
+        return EXIT_CLEAN
+    try:
+        root.resolve().relative_to(name_repair.ITEM_SEED_ROOT.resolve())
+    except ValueError:
+        pass
+    else:
+        if not args.allow_production_tree:
+            print(f"seedsmith: {label} refused - production data/seed/items is read-only "
+                  "unless --allow-production-tree is passed", file=sys.stderr)
+            return EXIT_REFUSED
+    try:
+        outcome = name_repair.repair_names_deterministically(
+            items_root=root, kind=kind, write=True)
+    except (OSError, ValueError) as exc:
+        # It raises no refusal of its own - a fully-taken row ladder is reported, not thrown - so this
+        # is an I/O or bad-input failure, not a policy gate. Keep it named and loud rather than letting
+        # a traceback be the interface.
+        print(f"seedsmith: {label} failed - {exc}", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+    print(json.dumps({"write": True, "derive": True, **({"kind": kind} if kind else {}),
+                      "derived_count": len(outcome.get("derived", [])),
+                      "derived": outcome.get("derived", []),
+                      "changed_files": len(outcome.get("changed", [])),
+                      "changed": [str(path) for path in outcome.get("changed", [])]},
+                     ensure_ascii=False, indent=2))
+    return EXIT_CLEAN
+
+
 def _cmd_items_repair_names(args: argparse.Namespace, *, kind: str = "") -> int:
     """Plan or apply model-authored surface-name repairs for persisted duplicate display names.
 
@@ -1376,6 +1423,8 @@ def _cmd_items_repair_names(args: argparse.Namespace, *, kind: str = "") -> int:
         repairs = tuple(repair for repair in repairs if repair.kind == kind)
     if args.limit > 0:
         repairs = repairs[:args.limit]
+    if getattr(args, "derive", False):
+        return _cmd_items_repair_names_derived(args, root, kind, label)
     payload = {"write": bool(args.write), **({"kind": kind} if kind else {}), "repairs": [
         {"entryId": repair.entry_id, "kind": repair.kind, "oldName": repair.old_name,
          "keeperId": repair.keeper_id,
@@ -3861,6 +3910,11 @@ def _add_repair_names_arguments(parser: argparse.ArgumentParser) -> None:
                         help="items root to scan (default data/seed/items)")
     parser.add_argument("--answers", default="",
                         help="JSON object keyed by losing entry id, each with name and optional flavor")
+    parser.add_argument("--derive", action="store_true",
+                        help="derive replacement names from each losing row's OWN fields - no endpoint, "
+                             "no --answers, no model. Deterministic: the same corpus always yields the "
+                             "same names, so the fix survives the next content ship instead of "
+                             "needing a new authored batch.")
     parser.add_argument("--endpoint", default="",
                         help="live model endpoint; omitted when --answers supplies replacements")
     parser.add_argument("--model", default="unrecorded",
