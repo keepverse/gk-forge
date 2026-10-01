@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from seedsmith.adapters.items.setgen import answers as answers_mod  # noqa: E402
 from seedsmith.adapters.items.setgen import run as run_mod  # noqa: E402
+from seedsmith.adapters.items.setgen import themes as themes_mod  # noqa: E402
 from seedsmith.pipeline.llm_caller import DEFAULT_CONFIG, LlmCallerConfig  # noqa: E402
 from seedsmith.report import cli as cli_mod  # noqa: E402
 
@@ -240,6 +241,64 @@ class RefusalNarrowingTests(unittest.TestCase):
     # terminal escalations; the batch driver test covers that isolation boundary directly.
 
 
+#: The single build theme `one_uncovered_build_subject` plants. A SYNTHETIC archetype on purpose:
+#: `build.might-offense` is a real shipped partition, so a fixture built on it would silently depend
+#: on whatever the production corpus happens to contain — and `might-fixture` is a partition name no
+#: real corpus can collide with, so the fixture's plan cannot be perturbed by content shipping.
+_FIXTURE_BUILD_THEME = {
+    "id": "might-fixture",
+    "themeKey": "build.might-fixture",
+    "aptitude": "Might",
+    "posture": "force",
+    "archetype": "fixture",
+    "displayName": "Might / Fixture",
+    "motifs": ["might", "force"],
+    "antiMotifs": ["defense"],
+    "expression": {"item": "stat emphasis and threshold shape",
+                   "action": "not applicable - a build theme names no action expression"},
+    "basis": "derived",
+    "retired": False,
+}
+
+
+@contextlib.contextmanager
+def one_uncovered_build_subject(root: Path):
+    """Point `setgen`'s two corpus reads at a planted one-subject build catalogue under `root`.
+
+    ⛔ **Why this exists.** These two tests were written against the LIVE corpus, and their premise
+    rotted. They assert that a *resumed* run makes no second model call, which only holds if the
+    population is FINITE and the first invocation EXHAUSTS it. The comment the first test carried
+    claimed "the live build-theme catalogue has one uncovered subject in this fixture" — true when it
+    was written, and false the moment content shipped: all 36 build themes exist, so `plan_run`
+    returns an EMPTY plan BEFORE the ledger is ever consulted, `_cmd_items_write` is handed zero
+    subjects, and the very FIRST invocation makes 0 calls where the test asserted 1. Measured:
+    `population=build subjects=0 alreadyDone=36` with `ledger={}`, i.e. the subjects are absent
+    because `_set_entry_on_disk` finds every one already in the corpus, not because a ledger row
+    claims them. The 2026-09-08 regression these tests guard is still intact and still provable —
+    varying only `--population` gives `species` 1 uncovered subject and green lines, `build` 0 and
+    red — so the fix is to make the premise a FIXTURE, never to weaken the assertions.
+
+    Two constants carry every live read on this path, and both are module-level lookups resolved
+    per call, so patching them redirects the real code rather than replacing it:
+    `themes.BUILD_THEME_REGISTRY` (the pool `plan_run` plans from) and `run.DEFAULT_SETS_DIR` (the
+    corpus `plan_run` checks for an already-written entry, via `_set_entry_on_disk` when
+    `sets_dir=None` — which is exactly how `cmd_items` calls it).
+
+    This plants no corpus rows, so the planted catalogue owes exactly one subject on any machine
+    today and after the next content ship: the tests mean what they say.
+    """
+    registry = root / "_registry" / "build-themes.v1.json"
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    registry.write_text(json.dumps(
+        {"schemaVersion": 1, "registryVersion": "fixture", "themes": [_FIXTURE_BUILD_THEME]},
+        ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    sets_dir = root / "sets"
+    sets_dir.mkdir(parents=True, exist_ok=True)
+    with patch.object(themes_mod, "BUILD_THEME_REGISTRY", registry), \
+            patch.object(run_mod, "DEFAULT_SETS_DIR", sets_dir):
+        yield
+
+
 class LedgerReadPathMatchesWritePathTests(unittest.TestCase):
     """⛔ Real incident, 2026-09-08: a live 53-subject production run, resumed across THREE
     separate `items generate --write` invocations against the same `--out-dir`, reported
@@ -261,7 +320,8 @@ class LedgerReadPathMatchesWritePathTests(unittest.TestCase):
         self.server.close()
 
     def test_a_second_invocation_does_not_redo_the_first_invocations_subject(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, \
+                one_uncovered_build_subject(Path(tmp) / "corpus"):
             out_dir = str(Path(tmp) / "sets")
             self.server.queue(json.dumps(_clean_set_answer()))
             first = _generate_args(endpoint=self.server.url, out_dir=out_dir, limit=1)
@@ -270,9 +330,10 @@ class LedgerReadPathMatchesWritePathTests(unittest.TestCase):
             self.assertEqual(exit_code, cli_mod.EXIT_CLEAN)
             self.assertEqual(len(self.server.requests), 1)
 
-            # The live build-theme catalogue has one uncovered subject in this fixture.  The first
-            # invocation therefore exhausts the finite population; resume must make no second call
-            # rather than inventing a new subject merely to prove the ledger is being read.
+            # The planted build-theme catalogue has exactly one uncovered subject (see
+            # `one_uncovered_build_subject`). The first invocation therefore exhausts the finite
+            # population; resume must make no second call rather than inventing a new subject merely
+            # to prove the ledger is being read.
             self.server.queue(json.dumps(_clean_set_answer()))
             second = _generate_args(endpoint=self.server.url, out_dir=out_dir, limit=1)
             with patch("sys.stdout"):
@@ -288,7 +349,8 @@ class LedgerReadPathMatchesWritePathTests(unittest.TestCase):
     def test_ignore_ledger_still_replans_the_full_population(self):
         """The fix must not accidentally make `--ignore-ledger` a no-op — it is the documented
         escape hatch for "replan every generatable subject, even ones a previous run recorded"."""
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, \
+                one_uncovered_build_subject(Path(tmp) / "corpus"):
             out_dir = str(Path(tmp) / "sets")
             self.server.queue(json.dumps(_clean_set_answer()))
             first = _generate_args(endpoint=self.server.url, out_dir=out_dir, limit=1)
@@ -303,6 +365,33 @@ class LedgerReadPathMatchesWritePathTests(unittest.TestCase):
 
             self.assertEqual(self.server.requests[0]["messages"], self.server.requests[1]["messages"],
                              "--ignore-ledger must re-plan the SAME first subject, not advance past it")
+
+    def test_the_planted_fixture_owes_exactly_one_build_subject(self):
+        """The PREMISE of the two tests above, asserted rather than assumed.
+
+        Both neighbours prove a resume makes no second call, which is only meaningful if the first
+        invocation had a subject to spend. That is exactly the premise that rotted unnoticed when
+        these tests read the live corpus: the population went to zero and the tests went red at
+        their FIRST assertion instead of reporting "the fixture no longer owes anything". This test
+        is the canary — it reads the planted catalogue through the real `plan_run` and fails loudly
+        if the fixture ever stops owing exactly one generatable subject, so the rot is named at its
+        cause instead of surfacing two tests downstream.
+
+        It also pins the two ways the planted plan can silently collapse to zero: the theme becoming
+        held (`retired` / non-generatable `basis` / no motifs), and the theme's minted entry id
+        appearing in the sets corpus `plan_run` checks.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with one_uncovered_build_subject(Path(tmp) / "corpus"):
+                plan = run_mod.plan_run(kind="set", population="build", tuning=TUNING,
+                                        vocabulary=VOCAB, ledger={})
+        self.assertEqual(len(plan.subjects), 1,
+                         "the planted catalogue must owe exactly one build subject")
+        self.assertEqual(plan.subjects[0].subject_id, "set-build-build.might-fixture")
+        self.assertEqual(plan.already_done, [],
+                         "no planted subject may start out already done")
+        self.assertFalse(plan.subjects[0].brief.strip() == "",
+                         "a planned subject must carry the brief the model is asked to answer")
 
 
 # --------------------------------------------------------------------------------------------
