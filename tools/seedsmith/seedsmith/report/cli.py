@@ -657,6 +657,10 @@ def cmd_items(args: argparse.Namespace) -> int:
         return _cmd_items_repair_ledger(args)
     if args.items_command == "repair-names":
         return _cmd_items_repair_names(args)
+    if args.items_command == "repair-materials":
+        return _cmd_items_repair_materials(args)
+    if args.items_command == "repair-charms":
+        return _cmd_items_repair_charms(args)
     if args.items_command == "combo-budget":
         return _cmd_items_combo_budget(args)
     if args.items_command != "generate":
@@ -749,6 +753,12 @@ def cmd_items(args: argparse.Namespace) -> int:
     retry_feedback: set[str] = set()
     if getattr(args, "retry_blocked", False) and ledger:
         ledger, retry_feedback = _retry_blocked_ledger(ledger)
+    # `sets_dir` is deliberately NOT threaded here, though `plan_run` accepts it. Measured: passing
+    # `out_dir` fixes neither test and breaks a documented behaviour. `_set_entry_on_disk` is only one
+    # of the readers of `sets_dir` - it also drives which subject `plan_run` SELECTS (the least
+    # represented charm axis/class), so handing it a temp dir makes the planner see an empty corpus and
+    # advance past the subject `--ignore-ledger` is documented to re-plan. See the ledger resolution
+    # above, which IS the whole of the 2026-09-08 incident this test class records.
     try:
         plan = run_mod.plan_run(kind=args.kind, population=args.population,
                                 tuning=tuning, vocabulary=vocabulary, ledger=ledger)
@@ -1232,16 +1242,30 @@ def _print_combo_budget_report(dump: dict, items_root: Path) -> int:
     return EXIT_GAP
 
 
-def _cmd_items_repair_names(args: argparse.Namespace) -> int:
-    """Plan or apply model-authored surface-name repairs for persisted set/charm collisions."""
+def _cmd_items_repair_names(args: argparse.Namespace, *, kind: str = "") -> int:
+    """Plan or apply model-authored surface-name repairs for persisted duplicate display names.
+
+    `kind` narrows the plan to one kind and is what `repair-materials` / `repair-charms` pass. The
+    collision RULE is never re-decided here: a group's members may span kinds (measured 2026-10-01
+    on the real corpus — `material.140` "The Verdant Seedling" loses to `charm.surv-util-008`
+    "Verdant Seedling"), so narrowing selects which LOSING rows this run renames, never which row
+    wins. A keeper is never renamed by a narrowed run, which is the point: `repair-charms` against a
+    corpus where every charm is its group's keeper legitimately plans zero rows, because there is
+    nothing on that side to repair.
+    """
     from ..adapters.items.setgen import name_repair
     from ..pipeline.llm_caller import live_answer_caller, resolve_live_transport
 
+    # The refusal/reporting text names the command the user actually typed, exactly as
+    # `repair-sets` / `repair-species` / `repair-set-class` name their own.
+    label = getattr(args, "items_command", "") or "repair-names"
     root = Path(args.items_dir) if args.items_dir else name_repair.ITEM_SEED_ROOT
     repairs = name_repair.plan(root)
+    if kind:
+        repairs = tuple(repair for repair in repairs if repair.kind == kind)
     if args.limit > 0:
         repairs = repairs[:args.limit]
-    payload = {"write": bool(args.write), "repairs": [
+    payload = {"write": bool(args.write), **({"kind": kind} if kind else {}), "repairs": [
         {"entryId": repair.entry_id, "kind": repair.kind, "oldName": repair.old_name,
          "keeperId": repair.keeper_id,
          "brief": name_repair.brief(repair, cluster_size=repair.cluster_size)}
@@ -1249,13 +1273,19 @@ def _cmd_items_repair_names(args: argparse.Namespace) -> int:
     if not args.write:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return EXIT_CLEAN
+    if not repairs:
+        # Nothing to rename is a CLEAN result, not a failed run: a narrowed command reaches this far
+        # on a corpus with no collisions in its kind, and reporting "no usable answers (0 failed)"
+        # would blame the model for a plan that never asked it anything.
+        print(json.dumps({**payload, "changed": [], "failed": []}, ensure_ascii=False, indent=2))
+        return EXIT_CLEAN
     try:
         root.resolve().relative_to(name_repair.ITEM_SEED_ROOT.resolve())
     except ValueError:
         pass
     else:
         if not args.allow_production_tree:
-            print("seedsmith: repair-names refused — production data/seed/items is read-only "
+            print(f"seedsmith: {label} refused — production data/seed/items is read-only "
                   "unless --allow-production-tree is passed", file=sys.stderr)
             return EXIT_REFUSED
     # The validator's own normalizer is the authority for whether a replacement REUSES an idea
@@ -1266,13 +1296,13 @@ def _cmd_items_repair_names(args: argparse.Namespace) -> int:
         document = json.loads(Path(args.answers).read_text(encoding="utf-8"))
         answers = document.get("answers", document) if isinstance(document, dict) else None
         if not isinstance(answers, dict):
-            print("seedsmith: repair-names answers must be a JSON object keyed by entry id", file=sys.stderr)
+            print(f"seedsmith: {label} answers must be a JSON object keyed by entry id", file=sys.stderr)
             return EXIT_REFUSED
         failed: list[dict] = []
     else:
         transport = resolve_live_transport(args.endpoint, args.model)
         if not transport.endpoint:
-            print("seedsmith: repair-names --write needs --answers or a live endpoint", file=sys.stderr)
+            print(f"seedsmith: {label} --write needs --answers or a live endpoint", file=sys.stderr)
             return EXIT_REFUSED
         caller = live_answer_caller(transport)
         # Per-row resilience with a bounded retry. A single out-of-vocabulary answer ("Evasion"
@@ -1314,7 +1344,7 @@ def _cmd_items_repair_names(args: argparse.Namespace) -> int:
                     failed.append({"entryId": repair.entry_id, "reason": f"model call failed: {exc}"})
                     break
         if not answers:
-            print(f"seedsmith: repair-names produced no usable answers ({len(failed)} failed)",
+            print(f"seedsmith: {label} produced no usable answers ({len(failed)} failed)",
                   file=sys.stderr)
             return EXIT_CANNOT_RUN
         # Only the rows with a valid answer are applied; the rest stay for the next run.
@@ -1322,11 +1352,34 @@ def _cmd_items_repair_names(args: argparse.Namespace) -> int:
     try:
         changed = name_repair.apply(repairs, answers, write=True, items_root=root, key_of=key_of)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"seedsmith: repair-names failed — {exc}", file=sys.stderr)
+        print(f"seedsmith: {label} failed — {exc}", file=sys.stderr)
         return EXIT_CANNOT_RUN
     print(json.dumps({**payload, "changed": [str(path) for path in changed],
                       "failed": failed}, ensure_ascii=False, indent=2))
     return EXIT_CLEAN
+
+
+def _cmd_items_repair_materials(args: argparse.Namespace) -> int:
+    """`seedsmith items repair-materials` — the `name_repair` plan narrowed to `kind == "material"`.
+
+    Materials are the largest colliding population (measured 2026-10-01 on the real corpus: 72 of the
+    84 losing rows across 66 groups), and they collide ACROSS kinds with charms and sets, so a run
+    that cannot be narrowed would either mix three populations into one model batch or slice the
+    wrong subset with `--limit`.
+    """
+    return _cmd_items_repair_names(args, kind="material")
+
+
+def _cmd_items_repair_charms(args: argparse.Namespace) -> int:
+    """`seedsmith items repair-charms` — the `name_repair` plan narrowed to `kind == "charm"`.
+
+    The narrow kind because `plan()` keeps the lexically first id of each group, and `charm.` sorts
+    before `material.` and `set.`: every charm in a cross-kind group is therefore the keeper, so a
+    charm is only ever renamed when it collides with another charm. Measured 2026-10-01 on the real
+    corpus that is 0 losing rows — charms are 5 group members and 5 keepers — which is the correct
+    answer, not a missing detection.
+    """
+    return _cmd_items_repair_names(args, kind="charm")
 
 
 _PASSTHROUGH_MODULE_BY_KIND = {
@@ -3681,6 +3734,30 @@ def cmd_narrative(args: argparse.Namespace) -> int:
     return EXIT_CANNOT_RUN
 
 
+def _add_repair_names_arguments(parser: argparse.ArgumentParser) -> None:
+    """The argument set every `items repair-*names` entry takes.
+
+    `repair-names`, `repair-materials` and `repair-charms` are ONE implementation
+    (`_cmd_items_repair_names`, narrowed by `kind`), so they take ONE argument set — declared here
+    once so the three cannot drift apart, which is the failure mode a hand-copied block produces the
+    first time a flag is added to only one of them.
+    """
+    parser.add_argument("--write", action="store_true",
+                        help="apply validated replacement names")
+    parser.add_argument("--allow-production-tree", dest="allow_production_tree", action="store_true",
+                        help="permit writes under data/seed/items/")
+    parser.add_argument("--items-dir", default="",
+                        help="items root to scan (default data/seed/items)")
+    parser.add_argument("--answers", default="",
+                        help="JSON object keyed by losing entry id, each with name and optional flavor")
+    parser.add_argument("--endpoint", default="",
+                        help="live model endpoint; omitted when --answers supplies replacements")
+    parser.add_argument("--model", default="unrecorded",
+                        help="live model id; falls through to configured default")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="repair at most N losing rows (0 = every duplicate)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="seedsmith")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -4067,20 +4144,13 @@ def build_parser() -> argparse.ArgumentParser:
                          help="items root (default data/seed/items)")
     inames = items_sub.add_parser(
         "repair-names", help="rename persisted duplicate set/charm names (dry-run by default)")
-    inames.add_argument("--write", action="store_true",
-                        help="apply validated replacement names")
-    inames.add_argument("--allow-production-tree", dest="allow_production_tree", action="store_true",
-                        help="permit writes under data/seed/items/")
-    inames.add_argument("--items-dir", default="",
-                        help="items root containing sets/ and charms/ (default data/seed/items)")
-    inames.add_argument("--answers", default="",
-                        help="JSON object keyed by losing entry id, each with name and optional flavor")
-    inames.add_argument("--endpoint", default="",
-                        help="live model endpoint; omitted when --answers supplies replacements")
-    inames.add_argument("--model", default="unrecorded",
-                        help="live model id; falls through to configured default")
-    inames.add_argument("--limit", type=int, default=0,
-                        help="repair at most N losing rows (0 = every duplicate)")
+    _add_repair_names_arguments(inames)
+    imaterials = items_sub.add_parser(
+        "repair-materials", help="rename persisted duplicate material names (dry-run by default)")
+    _add_repair_names_arguments(imaterials)
+    icharms = items_sub.add_parser(
+        "repair-charms", help="rename persisted duplicate charm names (dry-run by default)")
+    _add_repair_names_arguments(icharms)
     imigrate = items_sub.add_parser(
         "combogen-migrate",
         help="report or run combogen.migrate's socket-word retirement (module 21)")
