@@ -11,6 +11,7 @@ from __future__ import annotations
 import unittest
 
 from seedsmith.adapters.trees import census as census_mod
+from seedsmith.workspace_roots import owned_path
 
 
 def _plan(tree_id: str, nodes: "list[tuple[str, str, int]]", *, category: str = "primary") -> dict:
@@ -117,8 +118,11 @@ class ReadableVsPricedTests(unittest.TestCase):
         # The census's copy of the resolver's predicate must not drift from the resolver itself.
         # `BoundAtomsFor` skips anything whose KindId != the readable kind, so the literal it compares
         # against is the contract this constant mirrors.
-        root = census_mod.REPO_ROOT
-        source = (root / "src" / "FusionRpg.Core" / "PassiveTree" / "Resolve" / "TreeAtomSource.cs")
+        # The file is gk-core's, not gk-forge's: `REPO_ROOT / "src" / ...` names a directory this
+        # repository does not have, and `owned_path` asks which repository actually TRACKS the path.
+        source = owned_path(
+            "src/FusionRpg.Core/PassiveTree/Resolve/TreeAtomSource.cs", census_mod.REPO_ROOT
+        )
         self.assertTrue(source.is_file(), f"resolver source not found: {source}")
         text = source.read_text(encoding="utf-8")
         self.assertIn(f'"{census_mod.READABLE_KIND_ID}"', text,

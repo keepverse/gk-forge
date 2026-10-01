@@ -14,6 +14,7 @@ from seedsmith.adapters.trees.identity.generate_identity import (
 )
 from seedsmith.adapters.trees.identity.schemas import TREE_IDENTITY_RESPONSE_SCHEMA, tree_identity_defects
 from seedsmith.pipeline.model import audit_schema
+from seedsmith.workspace_roots import owned_path
 
 
 def _stub_call(responses_by_call_order: "list[dict]"):
@@ -62,8 +63,11 @@ class RealSampleNodesTests(unittest.TestCase):
         self.assertEqual(6, len(real_sample_nodes(seed)))
 
     def test_the_real_committed_ferocity_seed_yields_real_sample_pairs(self) -> None:
-        root = Path(__file__).resolve().parents[5]
-        seed_path = root / "data" / "seed" / "passive-tree" / "nodes" / "ferocity.json"
+        # `data/seed/**` is gk-data's pack, not gk-forge's, so a `parents[5]` join named a
+        # repository that does not carry it. `owned_path` asks which one does.
+        seed_path = owned_path(
+            "data/seed/passive-tree/nodes/ferocity.json", Path(__file__).resolve().parents[5]
+        )
         pairs = real_sample_nodes(seed_path.read_text(encoding="utf-8"))
         self.assertEqual(6, len(pairs))
         self.assertIn(("Thickened Marrow",
