@@ -8,6 +8,7 @@ using FusionRpg.Tools.CreatureCorpusDump;
 //   dotnet run --project gk-forge/tools/CreatureCorpusDump -- <server data dir> [output root]
 //   dotnet run --project gk-forge/tools/CreatureCorpusDump -- <server data dir> --check      (owner, local, real DB)
 //   dotnet run --project gk-forge/tools/CreatureCorpusDump -- --verify <dump root>           (CI — no DB needed)
+//   dotnet run --project gk-forge/tools/CreatureCorpusDump -- --rehash-manifest <dump root>  (CI — no DB needed)
 //   dotnet run --project gk-forge/tools/CreatureCorpusDump -- --base-stats <server data dir> [output root] [--check]
 //        the game's own static type_base_stats table, committed as its own self-describing file so
 //        a generator never has to open the uncommitted local rpg-hot.sqlite (creature-seed R-CS1)
@@ -29,6 +30,33 @@ if (args.Length >= 2 && args[0] == "--verify")
         return 1;
     }
     Console.WriteLine($"corpus-dump --verify: {args[1]} is self-consistent ({reason}; base-stats {statsReason}).");
+    return 0;
+}
+
+// `--rehash-manifest` rewrites ONLY `_manifest.json`, from the four payload files already on disk.
+// It exists because a committed tree can carry a contentHash captured from payload bytes this repo
+// never held while every COUNT still matches — a stale hash, not a stale corpus. The default run is
+// the wrong instrument there (it re-exports all four payloads from today's database: measured
+// baselineCount 82 -> 913, recipeCount 1295 -> 0), so this mode recomputes the hash from the
+// committed bytes instead. Idempotent: a tree whose hash already matches is left untouched.
+if (args.Length >= 2 && args[0] == "--rehash-manifest")
+{
+    var rehash = DumpWriter.RehashCommittedManifest(Path.GetFullPath(args[1]));
+    if (!rehash.Ok)
+    {
+        Console.Error.WriteLine($"corpus-dump --rehash-manifest: {args[1]} REFUSED — {rehash.Reason}");
+        return 1;
+    }
+    if (!rehash.Changed)
+    {
+        Console.WriteLine(
+            $"corpus-dump --rehash-manifest: {args[1]} already current — {rehash.Reason} (nothing written).");
+        return 0;
+    }
+    Console.WriteLine(
+        $"corpus-dump --rehash-manifest: rewrote {Path.Combine(Path.GetFullPath(args[1]), DumpWriter.ManifestFileName)} — " +
+        $"contentHash {rehash.DeclaredHash} -> {rehash.RecomputedHash}; capturedUtc preserved ({rehash.CapturedUtc}); " +
+        "the four payload files were read, never written.");
     return 0;
 }
 
@@ -81,6 +109,7 @@ if (args.Length < 1)
 {
     Console.Error.WriteLine("usage: CreatureCorpusDump <server data dir> [output root, default data/seed/creatures/_dump] [--check]");
     Console.Error.WriteLine("       CreatureCorpusDump --verify <dump root>   (CI, no database needed)");
+    Console.Error.WriteLine("       CreatureCorpusDump --rehash-manifest <dump root>   (CI, no database needed)");
     return 1;
 }
 

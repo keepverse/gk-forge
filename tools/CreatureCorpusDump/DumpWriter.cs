@@ -15,6 +15,11 @@ namespace FusionRpg.Tools.CreatureCorpusDump;
 /// </summary>
 public static class DumpWriter
 {
+    /// <summary>The committed envelope's file name. A const beside <see cref="TypeBaseStatsFileName"/>
+    /// rather than a string literal repeated at each path, so a rehash and a verify can never look
+    /// for the envelope under different names.</summary>
+    public const string ManifestFileName = "_manifest.json";
+
     static readonly JsonWriterOptions WriterOptions = new()
     {
         Indented = true,
@@ -184,7 +189,7 @@ public static class DumpWriter
     {
         var almanacDir = Path.Combine(outputRoot, "almanac");
         Directory.CreateDirectory(almanacDir);
-        File.WriteAllBytes(Path.Combine(outputRoot, "_manifest.json"), tree.ManifestBytes);
+        File.WriteAllBytes(Path.Combine(outputRoot, ManifestFileName), tree.ManifestBytes);
         File.WriteAllBytes(Path.Combine(almanacDir, "plant.json"), tree.PlantAlmanacBytes);
         File.WriteAllBytes(Path.Combine(almanacDir, "zombie.json"), tree.ZombieAlmanacBytes);
         File.WriteAllBytes(Path.Combine(outputRoot, "spawn-baseline.json"), tree.SpawnBaselineBytes);
@@ -194,7 +199,7 @@ public static class DumpWriter
     /// <summary>True when every file on disk under <paramref name="outputRoot"/> byte-matches <paramref name="tree"/>.</summary>
     public static bool MatchesDisk(string outputRoot, DumpTree tree)
     {
-        return FileMatches(Path.Combine(outputRoot, "_manifest.json"), tree.ManifestBytes)
+        return FileMatches(Path.Combine(outputRoot, ManifestFileName), tree.ManifestBytes)
             && FileMatches(Path.Combine(outputRoot, "almanac", "plant.json"), tree.PlantAlmanacBytes)
             && FileMatches(Path.Combine(outputRoot, "almanac", "zombie.json"), tree.ZombieAlmanacBytes)
             && FileMatches(Path.Combine(outputRoot, "spawn-baseline.json"), tree.SpawnBaselineBytes)
@@ -215,17 +220,17 @@ public static class DumpWriter
     /// </summary>
     public static (bool Ok, string Reason) VerifyCommittedTree(string outputRoot)
     {
-        var manifestPath = Path.Combine(outputRoot, "_manifest.json");
-        if (!File.Exists(manifestPath)) return (false, $"no _manifest.json under {outputRoot}");
+        var manifestPath = Path.Combine(outputRoot, ManifestFileName);
+        if (!File.Exists(manifestPath)) return (false, $"no {ManifestFileName} under {outputRoot}");
 
         JsonNode? manifestNode;
         try { manifestNode = JsonNode.Parse(File.ReadAllText(manifestPath)); }
-        catch (JsonException ex) { return (false, $"_manifest.json did not parse: {ex.Message}"); }
+        catch (JsonException ex) { return (false, $"{ManifestFileName} did not parse: {ex.Message}"); }
         if (manifestNode is not JsonObject manifestObj)
-            return (false, "_manifest.json is not a JSON object");
+            return (false, $"{ManifestFileName} is not a JSON object");
 
         var declaredHash = (string?)manifestObj["contentHash"];
-        if (string.IsNullOrEmpty(declaredHash)) return (false, "_manifest.json has no contentHash");
+        if (string.IsNullOrEmpty(declaredHash)) return (false, $"{ManifestFileName} has no contentHash");
 
         var plantPath = Path.Combine(outputRoot, "almanac", "plant.json");
         var zombiePath = Path.Combine(outputRoot, "almanac", "zombie.json");
@@ -258,6 +263,264 @@ public static class DumpWriter
         if (CountArray(recipesPath) != declaredRecipe) return (false, "recipeCount does not match recipes.json's array length");
 
         return (true, $"hash {declaredHash} — plant={declaredPlant} zombie={declaredZombie} baselines={declaredBaseline} recipes={declaredRecipe}");
+    }
+
+    // --- manifest-only rehash ---------------------------------------------------------------------
+    // The one defect a committed tree can carry while every COUNT is still correct: a `contentHash`
+    // captured from payload bytes this repository never held. Re-recording from a live database is
+    // the wrong instrument for it — a default run re-exports all four payload files, which against
+    // today's database rewrites the corpus (measured: baselineCount 82 -> 913, recipeCount 1295 -> 0,
+    // a diff nobody asked for). So this mode recomputes the hash from the bytes ALREADY committed
+    // and rewrites the envelope alone.
+
+    /// <summary>
+    /// Outcome of <see cref="RehashCommittedManifest"/>.
+    /// <para><see cref="ManifestBytes"/> is null on every refusal, so no caller can write an envelope
+    /// this tool did not fully compute. <see cref="Changed"/> says the declared hash disagreed with
+    /// the payload; <see cref="Written"/> says bytes actually changed on disk. They are separate
+    /// because the common case is "already current", which is a success that must not churn the
+    /// file — the spec's own "re-running must be byte-identical" rule.</para>
+    /// </summary>
+    public sealed record ManifestRehash(
+        bool Ok,
+        string Reason,
+        byte[]? ManifestBytes = null,
+        string? DeclaredHash = null,
+        string? RecomputedHash = null,
+        string? CapturedUtc = null,
+        bool Changed = false,
+        bool Written = false);
+
+    /// <summary>
+    /// Recomputes <c>contentHash</c> from the four committed payload files and rewrites
+    /// <c>_manifest.json</c> and nothing else. Every payload byte is read, never written.
+    ///
+    /// <para><b>capturedUtc is PRESERVED, deliberately.</b> It answers "when did the game last write
+    /// this?" and is derived from the payload's own <c>max(RebuiltUtc)</c>, never wall-clock time
+    /// (spec-corpus-dump.md §2). No capture happened here — re-reading the same bytes is not a
+    /// capture — so stamping it "now" would claim an event that did not occur and would churn the
+    /// file on every run, breaking the same byte-identical-rerun rule the field was designed to
+    /// protect. Because the payload is untouched, the stamp the manifest already carries still
+    /// describes it; that is checked, not assumed (REHASH-CAPTURE-STAMP-MISMATCH).</para>
+    ///
+    /// <para><b>Fails closed.</b> Every refusal returns a named code and a null
+    /// <see cref="ManifestRehash.ManifestBytes"/>: a missing or unreadable payload file, a payload
+    /// that does not parse as an array, a count that disagrees with the payload it describes (which
+    /// means the payload itself moved and this IS a real re-capture), a capture stamp the payload
+    /// does not corroborate, a hash the algorithm could not compute, a declared hash whose bytes
+    /// cannot be located unambiguously, or a rewritten envelope that fails to re-parse with
+    /// anything but <c>contentHash</c> moved. Nothing is written on any of them.</para>
+    /// </summary>
+    public static ManifestRehash RehashCommittedManifest(string outputRoot)
+    {
+        var manifestPath = Path.Combine(outputRoot, ManifestFileName);
+        if (!File.Exists(manifestPath))
+            return Refuse("REHASH-NO-MANIFEST", $"no {ManifestFileName} under {outputRoot}");
+
+        byte[] manifestBytes;
+        try { manifestBytes = File.ReadAllBytes(manifestPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refuse("REHASH-MANIFEST-UNREADABLE", $"{ManifestFileName} could not be read: {ex.Message}");
+        }
+
+        JsonNode? manifestNode;
+        try { manifestNode = JsonNode.Parse(manifestBytes); }
+        catch (JsonException ex) { return Refuse("REHASH-MANIFEST-UNPARSEABLE", $"{ManifestFileName} did not parse: {ex.Message}"); }
+        if (manifestNode is not JsonObject manifest)
+            return Refuse("REHASH-MANIFEST-NOT-OBJECT", $"{ManifestFileName} is not a JSON object");
+
+        var declaredHash = (string?)manifest["contentHash"];
+        if (string.IsNullOrEmpty(declaredHash))
+            return Refuse("REHASH-MANIFEST-FIELD", $"{ManifestFileName} has no contentHash");
+        var capturedUtc = (string?)manifest["capturedUtc"];
+        if (capturedUtc is null)
+            return Refuse("REHASH-MANIFEST-FIELD", $"{ManifestFileName} has no capturedUtc");
+        var formatVersion = (int?)manifest["dumpFormatVersion"];
+        if (formatVersion is null)
+            return Refuse("REHASH-MANIFEST-FIELD", $"{ManifestFileName} has no integer dumpFormatVersion");
+        var declaredPlant = (int?)manifest["plantCount"];
+        var declaredZombie = (int?)manifest["zombieCount"];
+        var declaredBaseline = (int?)manifest["baselineCount"];
+        var declaredRecipe = (int?)manifest["recipeCount"];
+        if (declaredPlant is null || declaredZombie is null || declaredBaseline is null || declaredRecipe is null)
+            return Refuse("REHASH-MANIFEST-FIELD", $"{ManifestFileName} is missing an integer count field");
+
+        // Read each payload ONCE, and both hash and count from those same bytes: a tree read twice
+        // could be hashed as one revision and counted as another.
+        var payloads = new (string Rel, int DeclaredCount)[]
+            {
+                (Path.Combine("almanac", "plant.json"), declaredPlant.Value),
+                (Path.Combine("almanac", "zombie.json"), declaredZombie.Value),
+                ("spawn-baseline.json", declaredBaseline.Value),
+                ("recipes.json", declaredRecipe.Value),
+            };
+        var payloadBytes = new byte[payloads.Length][];
+        for (var i = 0; i < payloads.Length; i++)
+        {
+            var path = Path.Combine(outputRoot, payloads[i].Rel);
+            if (!File.Exists(path))
+                return Refuse("REHASH-MISSING-PAYLOAD", $"missing payload file: {path}");
+            try { payloadBytes[i] = File.ReadAllBytes(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Refuse("REHASH-PAYLOAD-UNREADABLE", $"payload file could not be read: {path} ({ex.Message})");
+            }
+        }
+
+        var arrays = new JsonArray[payloadBytes.Length];
+        for (var i = 0; i < payloadBytes.Length; i++)
+        {
+            JsonNode? node;
+            try { node = JsonNode.Parse(payloadBytes[i]); }
+            catch (JsonException ex)
+            {
+                return Refuse("REHASH-PAYLOAD-UNPARSEABLE", $"payload file did not parse: {payloads[i].Rel} ({ex.Message})");
+            }
+            if (node is not JsonArray arr)
+                return Refuse("REHASH-PAYLOAD-NOT-ARRAY", $"payload file is not a JSON array: {payloads[i].Rel}");
+            if (arr.Count != payloads[i].DeclaredCount)
+            {
+                return Refuse("REHASH-COUNT-MISMATCH",
+                    $"{payloads[i].Rel} holds {arr.Count} rows but {ManifestFileName} declares {payloads[i].DeclaredCount} — " +
+                    "the payload itself moved, so this is a real re-capture and not a stale hash");
+            }
+            arrays[i] = arr;
+        }
+
+        // The preserved stamp must still describe the payload it is preserved alongside.
+        string? newestRebuilt = null;
+        foreach (var row in arrays[0].Concat(arrays[1]))
+        {
+            if (row is not JsonObject rowObj || (string?)rowObj["rebuiltUtc"] is not { } rebuilt)
+                return Refuse("REHASH-ALMANAC-ROW-SHAPE", "an almanac row is missing its rebuiltUtc stamp");
+            if (newestRebuilt is null || string.CompareOrdinal(rebuilt, newestRebuilt) > 0)
+                newestRebuilt = rebuilt;
+        }
+        if (!string.Equals(capturedUtc, newestRebuilt, StringComparison.Ordinal))
+        {
+            return Refuse("REHASH-CAPTURE-STAMP-MISMATCH",
+                $"{ManifestFileName} declares capturedUtc {capturedUtc}, but the payload's newest rebuiltUtc is {newestRebuilt ?? "(none)"}");
+        }
+
+        string recomputed;
+        try
+        {
+            recomputed = ComputeContentHash(payloadBytes[0], payloadBytes[1], payloadBytes[2], payloadBytes[3]);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return Refuse("REHASH-HASH-FAILED", $"content hash could not be computed: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        if (string.Equals(recomputed, declaredHash, StringComparison.Ordinal))
+        {
+            return new ManifestRehash(true,
+                $"contentHash {recomputed} already matches the committed payload",
+                ManifestBytes: null, DeclaredHash: declaredHash, RecomputedHash: recomputed,
+                CapturedUtc: capturedUtc, Changed: false, Written: false);
+        }
+
+        // Splice rather than re-render: the envelope's own bytes are the only thing that should move.
+        var rewrittenBytes = SpliceHashToken(manifestBytes, declaredHash, recomputed, out var spliceFailure);
+        if (rewrittenBytes is null)
+            return Refuse("REHASH-SPLICE-FAILED", $"{ManifestFileName} could not be rewritten: {spliceFailure}");
+
+        var reparse = RehashOnlyFailure(manifest, rewrittenBytes, recomputed);
+        if (reparse is not null) return Refuse("REHASH-REPARSE-FAILED", reparse);
+
+        try { WriteManifestAtomically(manifestPath, rewrittenBytes); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refuse("REHASH-WRITE-FAILED", $"{ManifestFileName} could not be written: {ex.Message}");
+        }
+
+        return new ManifestRehash(true,
+            $"contentHash {declaredHash} -> {recomputed}",
+            ManifestBytes: rewrittenBytes, DeclaredHash: declaredHash, RecomputedHash: recomputed,
+            CapturedUtc: capturedUtc, Changed: true, Written: true);
+    }
+
+    static ManifestRehash Refuse(string code, string detail) =>
+        new(false, $"{code}: {detail}");
+
+    /// <summary>
+    /// Replaces the declared hash's bytes with the recomputed one, in place, inside the envelope's
+    /// own bytes. A full re-render would be wrong here, measurably: <c>Utf8JsonWriter</c>'s indented
+    /// output is CRLF on net8.0 — the committed envelope is 252 LF-only bytes, the renderer's is 260
+    /// and first differs at byte 1 (0x0D) — so re-rendering a committed LF tree to change one field
+    /// would move every line's ending too. Returns null with a reason rather than a partial splice.
+    /// </summary>
+    static byte[]? SpliceHashToken(byte[] manifestBytes, string declaredHash, string recomputed, out string failure)
+    {
+        failure = "";
+        var oldToken = Encoding.UTF8.GetBytes("\"" + declaredHash + "\"");
+        var newToken = Encoding.UTF8.GetBytes("\"" + recomputed + "\"");
+
+        var found = 0;
+        var at = -1;
+        for (var i = 0; i + oldToken.Length <= manifestBytes.Length; i++)
+        {
+            if (!manifestBytes.AsSpan(i, oldToken.Length).SequenceEqual(oldToken)) continue;
+            found++;
+            if (at < 0) at = i;
+        }
+        if (found != 1)
+        {
+            failure = $"the declared hash occurs {found} times in the file, so its value cannot be replaced unambiguously";
+            return null;
+        }
+
+        var spliced = new byte[manifestBytes.Length - oldToken.Length + newToken.Length];
+        manifestBytes.AsSpan(0, at).CopyTo(spliced);
+        newToken.CopyTo(spliced.AsSpan(at));
+        manifestBytes.AsSpan(at + oldToken.Length).CopyTo(spliced.AsSpan(at + newToken.Length));
+        return spliced;
+    }
+
+    /// <summary>
+    /// Parses a rewritten envelope through the normal parse path and returns null when
+    /// <c>contentHash</c> is provably the only field that moved. A splice that silently dropped, added
+    /// or altered anything else is reported here rather than written.
+    /// </summary>
+    static string? RehashOnlyFailure(JsonObject before, byte[] rewrittenBytes, string recomputed)
+    {
+        JsonNode? node;
+        try { node = JsonNode.Parse(rewrittenBytes); }
+        catch (JsonException ex) { return $"{ManifestFileName} did not parse after the rewrite: {ex.Message}"; }
+        if (node is not JsonObject after) return $"{ManifestFileName} is not a JSON object after the rewrite";
+        if (!string.Equals((string?)after["contentHash"], recomputed, StringComparison.Ordinal))
+            return $"{ManifestFileName} does not carry the recomputed hash after the rewrite";
+
+        var beforeKeys = before.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        var afterKeys = after.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        if (!beforeKeys.AsSpan().SequenceEqual(afterKeys))
+            return $"{ManifestFileName}'s key set changed during the rewrite";
+
+        foreach (var key in beforeKeys)
+        {
+            if (key == "contentHash") continue;
+            if (!string.Equals(before[key]?.ToJsonString(), after[key]?.ToJsonString(), StringComparison.Ordinal))
+                return $"{ManifestFileName}'s '{key}' changed during the rewrite — only contentHash may move";
+        }
+        return null;
+    }
+
+    /// <summary>Write-then-replace, so a crash mid-write cannot leave a half-written envelope that
+    /// still parses. The temp file is removed on failure; the exception is rethrown, never swallowed.</summary>
+    static void WriteManifestAtomically(string path, byte[] bytes)
+    {
+        var tmp = path + ".rehash-tmp";
+        try
+        {
+            File.WriteAllBytes(tmp, bytes);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+            throw;
+        }
     }
 
     // --- type_base_stats: the game's own static table, committed so a generator never reads a DB ---
