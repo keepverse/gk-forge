@@ -30,8 +30,15 @@ from seedsmith.adapters.items.droptablegen import tuning as tuning_mod
 from seedsmith.pipeline import dependency_validator as dv
 from seedsmith.pipeline.model import audit_schema
 from seedsmith.pipeline.run_ledger import RunLedger
+from seedsmith.workspace_roots import seed_root
 
-REAL_CORPUS_DIR = Path(__file__).resolve().parents[3] / "data" / "seed" / "items" / "drop-tables"
+# The real corpus is gk-data's content pack, NOT this repository. gk-forge carries neither
+# `data/seed` nor `data/tuning`, so joining `data/...` onto gk-forge's root names a file that is not
+# there -- the symptom being 11 FileNotFoundErrors naming `gk-forge\data\seed\items\drop-tables\d1.json`
+# for a file that sits present under the pack. `seed_root()` is the resolver that answers the
+# data/seed directory question by construction; a `parents[3]` walk cannot, because gk-data is a
+# SIBLING of gk-forge and no number of `..` hops reaches one.
+REAL_CORPUS_DIR = seed_root() / "items" / "drop-tables"
 
 #: The three real tables this module generated and committed in this same session (see the module's
 #: own report): d1-011/012 are the original 5-row-shape sample, d1-013 is the fuller 7-row shape

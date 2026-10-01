@@ -21,11 +21,9 @@ from seedsmith.adapters.items.milestonegen import emit as emit_mod
 from seedsmith.adapters.items.milestonegen import run as run_mod
 from seedsmith.adapters.items.milestonegen import schema as schema_mod
 from seedsmith.pipeline.run_ledger import RunLedger
+from seedsmith.workspace_roots import seed_root
 
-REAL_CORPUS_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "data" / "seed" / "items" / "enhancement-milestones" / "milestones.json"
-)
+REAL_CORPUS_PATH = seed_root() / "items" / "enhancement-milestones" / "milestones.json"
 
 
 def _load_real_corpus() -> dict:

@@ -29,6 +29,7 @@ from typing import Any
 from .seedfile import ITEM_SEED_ROOT, derive_name_key, NameKeyUnsluggable
 from ..naming_grammar import NAMING_GRAMMAR_RULES
 from ....tooling import run_tool
+from ....workspace_roots import forge_root, RootNotFound
 
 
 @dataclass(frozen=True)
@@ -143,11 +144,31 @@ def name_defects(names: "list[str] | tuple[str, ...]", *, items_root: Path | Non
 
 
 def _default_validator_project(root: Path) -> Path | None:
+    """The validator project, found by walking up from `root` and then by ASKING the resolver.
+
+    The walk alone is a pre-split shape. `ItemSeedValidator` lives in gk-forge
+    (`tools/ItemSeedValidator`), while the corpus root this is called with is gk-data's
+    (`data/seed/items` inside the content pack), and those two repositories are SIBLINGS: no number of
+    `..` hops from one arrives at the other. The walk therefore exhausted every ancestor of the pack
+    and returned None, and the callers turned that into
+    `ItemSeedValidator project not found near <gk-data>/.../items` -- a refusal naming a directory
+    the project was never under, for a project sitting present in a sibling repository.
+
+    So the walk stays (it is what a legacy monorepo clone and a planted fixture both need, and it is
+    the nearest-match rule) and `forge_root()` is consulted after it. `forge_root` RAISES when
+    gk-forge is absent, which is the same absence the walk already reported, so it is caught and the
+    None answer is preserved: every caller raises its own clear RuntimeError on None, and nothing here
+    invents a path that does not exist.
+    """
     for parent in [root, *root.parents]:
         candidate = parent / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
         if candidate.exists():
             return candidate
-    return None
+    try:
+        sibling = forge_root() / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
+    except RootNotFound:
+        return None
+    return sibling if sibling.exists() else None
 
 
 def plan(items_root: Path | None = None, *, groups: list[dict] | None = None) -> tuple[NameRepair, ...]:

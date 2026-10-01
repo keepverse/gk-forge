@@ -613,6 +613,20 @@ class MigrateWriteTests(unittest.TestCase):
         self.assertEqual(record.legacy_kind, migrate_mod.LEGACY_KIND)
 
 
+#: Call names that turn a repo-relative string literal into a PATH, and so make that literal a
+#: READER rather than prose. `Path` is the pre-split form; `_owned` and `owned_path` are what the
+#: nine-repository split introduced, because `data/tuning/**` is gk-core's and `data/seed/**` is
+#: gk-data's while a `REPO_ROOT`-relative join names a path in gk-forge that is not there.
+#:
+#: This list is DETECTION BREADTH, not a relaxation. Recognising only `Path(...)` made the scan blind
+#: to the very form the split made dominant — every revision constant in the items tree is now
+#: `NAME = _owned("data/tuning/<domain>.vN.json")` — so a second module opening its own copy of
+#: `sockets.v3.json` was invisible and the test read green. Widening the vocabulary makes that an
+#: offender again. The EXPECTATIONS below are unchanged: still exactly one canonical hit per domain,
+#: still no offenders.
+_PATH_CALL_NAMES = frozenset({"Path", "_owned", "owned_path"})
+
+
 class TuningRevisionLiteralTests(unittest.TestCase):
     """strain-splice-host SSH5.6/SSH7.1/SSH8.4: each revision is ONE path constant in its owning
     adapter. Only actual PATH joins are scanned — a message, docstring or comment naming the file is
@@ -640,7 +654,18 @@ class TuningRevisionLiteralTests(unittest.TestCase):
         import tokenize
 
         package = _owned("tools/seedsmith/seedsmith")
+        # The domain must be a whole PATH COMPONENT at the end of the literal, not the whole literal.
+        # `\A` (or a `/` before it) is what keeps a component boundary: `my-sockets.v1.json` is a
+        # different file and must not match a `sockets` sweep.
+        #
+        # This pattern was written for the pre-split `REPO_ROOT / "data" / "tuning" / "sockets.v3.json"`
+        # join, where the scanned literal WAS the bare filename. After the split the revision constant
+        # is `_owned("data/tuning/sockets.v3.json")` -- one string, directory included -- so a
+        # whole-literal `\A...` match could never fire again and the scan silently reported ZERO
+        # canonical hits instead of one. That is how two of these tests went red with no offender and
+        # no hit: not a corpus disagreement, a pattern that had stopped matching anything at all.
         domain_pattern = re.compile(
+            r"(?:\A|.*/)"
             rf"(?:{'|'.join(re.escape(domain) for domain in domains)})"
             r"\.v\d+\.json\Z")
         ignored = {
@@ -675,11 +700,14 @@ class TuningRevisionLiteralTests(unittest.TestCase):
                         previous.string == "(" and index >= 2):
                     is_path_join = (
                         tokens[index - 2].type == tokenize.NAME and
-                        tokens[index - 2].string == "Path")
+                        tokens[index - 2].string in _PATH_CALL_NAMES)
                 if not is_path_join:
                     continue
 
-                domain = value.split(".v", 1)[0]
+                # The revision domain is the literal's BASENAME, so the directory the split added to
+                # the constant does not become part of the key. `rsplit` first is a no-op for the
+                # pre-split bare-filename form, where the literal had no separator to strip.
+                domain = value.rsplit("/", 1)[-1].split(".v", 1)[0]
                 key = (rel, domain)
                 expected_constant = canonical.get(key)
                 if (expected_constant is not None and
