@@ -9,8 +9,24 @@ import importlib.util
 import json
 from pathlib import Path
 
-SCRIPT = (Path(__file__).resolve().parents[3] / ".claude" / "cmdc-agents" / "scripts" /
-          "bcu212-report.py")
+# `.claude/cmdc-agents/scripts/` is the WORKSPACE ROOT's lane tooling - gk-workflow's - and gk-forge has no
+# `.claude/` directory at all. Built from `parents[3]`, which is gk-forge's own root, this raised at IMPORT
+# time and took the whole seedsmith suite's collection down with it:
+#
+#     ERROR collecting tests/test_bcu212_report.py - FileNotFoundError: ... gk-forge\.claude\cmdc-agents\
+#     scripts\bcu212-report.py
+#
+# Measured: the file exists at the workspace root and nowhere else. `workspace_root` rather than
+# `root_carrying`, because this runs once at import of a file that lives in the real tree - unlike the 138
+# seedsmith modules the rewriter touched, which must also survive being copied to a temp directory as a
+# mutant, and where the strict accessor would raise. That distinction is the reason there are two
+# non-raising helpers.
+import sys as _sys
+
+_sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from seedsmith.workspace_roots import workspace_root  # noqa: E402
+
+SCRIPT = workspace_root() / ".claude" / "cmdc-agents" / "scripts" / "bcu212-report.py"
 _spec = importlib.util.spec_from_file_location("bcu212_report", SCRIPT)
 assert _spec is not None and _spec.loader is not None
 report = importlib.util.module_from_spec(_spec)
