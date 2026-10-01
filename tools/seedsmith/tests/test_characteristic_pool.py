@@ -423,30 +423,55 @@ class AttackTempoExclusionTests(unittest.TestCase):
         without_tempo = _anchor(sp, anchor=without_tempo_row)
         self.assertEqual(compute_scores(with_tempo, weights), compute_scores(without_tempo, weights))
 
-    def test_live_anchor_tree_attack_tempo_is_constant(self) -> None:
-        """The measured fact this exclusion USED TO be grounded in: every observed `attackTempo`
-        was `"steady"` — a single distinct value cannot discriminate between species even if it
-        WERE scored, which was the reason re-adding it was provably inert.
+    def test_attack_tempo_is_never_read_even_between_two_different_values(self) -> None:
+        """The exclusion this module makes DELIBERATELY, proved in the one case that can detect it.
 
-        **That premise is no longer true as of 2026-09-04** (creature-corpus-self-heal C1/C2, a
-        SEPARATE, approved program): `kit-shape` — the pipeline that decides `attackTempo` — had
-        never been wired into `option-permutation`'s voting/permutation at all, unlike every other
-        classified field, and a real 833-species audit found it had collapsed to `"steady"` 100%
-        of the time as a direct result. That gap is now fixed and redeployed corpus-wide, and the
-        live tree genuinely carries multiple `attackTempo` values.
+        **Why this replaces a test, and what it refuses to replace it with.** The test this took
+        the slot of asserted a fact about the SHIPPED anchor tree — that every observed
+        `attackTempo` was `"steady"` — so a single distinct value could not discriminate between
+        species even if it WERE scored, which was the original reason re-adding it was provably
+        inert. **That premise died on 2026-09-04** (creature-corpus-self-heal C1/C2, a SEPARATE
+        approved program): `kit-shape`, the pipeline that decides `attackTempo`, had never been
+        wired into `option-permutation`'s voting/permutation at all, unlike every other classified
+        field, and a real 833-species audit found it had collapsed to `"steady"` 100% of the time
+        as a direct result. That gap is now fixed and redeployed corpus-wide. Asserting the
+        constant again would assert something false, so the old test skipped itself forever — a
+        skip whose reason had itself rotted.
 
-        This test can no longer assert the OLD constant-value fact without asserting something
-        false. It does not follow that re-including `attackTempo` in `compute_scores` is now
-        correct — that is this module's own call (its `spec §3 step 4` names the exclusion
-        deliberately, not just descriptively), not something a fix to the UPSTREAM classification
-        pipeline should silently decide. Left as a flagged, skipped test rather than either a false
-        assertion or a silent deletion, so the real question — should `attackTempo` score now that
-        it discriminates? — stays visible to whoever owns this module next."""
-        self.skipTest(
-            "premise invalidated 2026-09-04 by creature-corpus-self-heal C1/C2: attackTempo is no "
-            "longer constant in the live tree (kit-shape was fixed and redeployed) — whether "
-            "compute_scores should now read it is a real, undecided design question for this "
-            "module, not something to silently assert either way here")
+        Two things are deliberately NOT done here, and both matter more than the assertion:
+
+        * **The corpus fact is not re-asserted in a new shape.** "The live tree carries N distinct
+          `attackTempo` values" is a POPULATION reading, not a contract, and `docs/architecture/
+          validation-ssot.md` is explicit that a generated corpus's size is never a literal — a
+          guardrail pinned to it fails the moment content legitimately grows. How many values the
+          tree happens to carry is not this test's business.
+        * **The open design question is not silently answered.** Whether `attackTempo` SHOULD now
+          score, given that it discriminates where it once could not, is this module's own call
+          under `spec §3 step 4` — which names the exclusion deliberately, not just descriptively
+          — and it is emphatically not something an upstream classification fix should decide by
+          omission. That question stays live in that spec section. A skip was the wrong instrument
+          for keeping it visible: it fires on every run, trains everyone to read past it, and
+          asserts nothing.
+
+        **What this proves instead** is hermetic and mutation-detectable: two anchors differing
+        ONLY in a non-null `attack_tempo` — two genuinely different values, not "set" versus
+        "unset" — score identically. A `compute_scores` that read the tempo would move the scores,
+        so this detects an exclusion that is ENFORCED rather than merely unobserved in the corpus
+        as it happens to stand today."""
+        weights = _flat_weights()
+        sp = _species("tempo-species", traits=("berserker",))
+        steady = _anchor(sp, anchor=AnchorRow(
+            species_id_lower="tempo-species", posture="Bastion", reach="melee",
+            target_preference="frontline", attack_tempo="steady"))
+        swift = _anchor(sp, anchor=AnchorRow(
+            species_id_lower="tempo-species", posture="Bastion", reach="melee",
+            target_preference="frontline", attack_tempo="swift"))
+        # The inputs really do differ. Without this the assertion could pass on two identical
+        # anchors and prove nothing — the check that makes the check honest.
+        self.assertEqual(steady.anchor.attack_tempo, "steady")
+        self.assertEqual(swift.anchor.attack_tempo, "swift")
+        self.assertNotEqual(steady.anchor.attack_tempo, swift.anchor.attack_tempo)
+        self.assertEqual(compute_scores(steady, weights), compute_scores(swift, weights))
 
 
 class OverflowTests(unittest.TestCase):
