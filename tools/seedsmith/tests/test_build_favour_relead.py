@@ -611,7 +611,21 @@ def test_the_cli_verb_is_dry_run_by_default_and_writes_nothing(tmp_path, capsys)
 
 def test_the_committed_corpus_relead_blocks_are_legal_and_match_their_votes():
     repo_root = Path(__file__).resolve().parents[3]
-    corpus = repo_root / "data" / "seed" / "creatures" / "species"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, repo_root) or repo_root) / relative
+
+    corpus = _owned("data/seed/creatures/species")
 
     blocks = 0
     for path in sorted(corpus.rglob("*.json")):

@@ -34,8 +34,22 @@ from .model import MAGNITUDE_RATIO_PERMILLE, TierBands
 from .formulas import round_legible, tier_ladder
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-FAMILIES_DIR = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
-BANDS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "bands.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ..workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+FAMILIES_DIR = _owned("data/seed/items/affix-families")
+BANDS_REGISTRY = _owned("data/seed/items/_registry/bands.v1.json")
 
 #: bands.v1.json powerBand.tierMap, mirrored exactly, cited, never re-derived.
 _BAND_ORDINAL = {"trivial": 1, "low": 2, "medium": 3, "high": 4, "extreme": 5}

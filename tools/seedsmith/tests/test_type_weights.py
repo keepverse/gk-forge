@@ -37,8 +37,22 @@ from seedsmith.adapters.actions.load import load_committed  # noqa: E402
 from seedsmith.corpus import Corpus  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ACTIONS_ROOT = REPO_ROOT / "data" / "seed" / "actions"
-TUNING_PATH = REPO_ROOT / "data" / "tuning" / "action-type-weights.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ACTIONS_ROOT = _owned("data/seed/actions")
+TUNING_PATH = _owned("data/tuning/action-type-weights.v1.json")
 OUTPUT_PATH = ACTIONS_ROOT / "type-weights.json"
 
 

@@ -55,6 +55,20 @@ from seedsmith.report import cli as cli_mod  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 
 def _real_tuning():
     return tuning_mod.load()
@@ -625,7 +639,7 @@ class TuningRevisionLiteralTests(unittest.TestCase):
         import re
         import tokenize
 
-        package = REPO_ROOT / "tools" / "seedsmith" / "seedsmith"
+        package = _owned("tools/seedsmith/seedsmith")
         domain_pattern = re.compile(
             rf"(?:{'|'.join(re.escape(domain) for domain in domains)})"
             r"\.v\d+\.json\Z")
@@ -708,7 +722,7 @@ class GeometricCeilingTests(unittest.TestCase):
         # The two ports agree because they share ONE constant and ONE formula: the C#
         # `SocketLimits.SocketCircuitSize` is read from its source and compared to CIRCUIT_SIZE, then
         # both readings are recomputed over the same shipped sockets file.
-        csharp = (REPO_ROOT / "src" / "FusionRpg.Core" / "Items" / "Sockets" / "SocketTuning.cs")\
+        csharp = (_owned("src/FusionRpg.Core/Items/Sockets/SocketTuning.cs"))\
             .read_text(encoding="utf-8")
         match = re.search(r"SocketCircuitSize = (\d+)", csharp)
         self.assertIsNotNone(match, "the C# SocketCircuitSize constant was not found")
@@ -741,8 +755,7 @@ class ComboBudgetReportTests(unittest.TestCase):
 
     @staticmethod
     def _recipes() -> list[dict]:
-        document = json.loads((tuning_mod.REPO_ROOT / "data" / "seed" / "items" / "recipes"
-                               / "recipes.json").read_text(encoding="utf-8"))
+        document = json.loads((_owned("data/seed/items/recipes/recipes.json")).read_text(encoding="utf-8"))
         return list(document.get("entries") or ())
 
     def _souls_leg(self, operation: str, rung_index: int) -> int:
@@ -812,7 +825,7 @@ class ComboBudgetReportTests(unittest.TestCase):
         }
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = cli_mod._print_combo_budget_report(dump, tuning_mod.REPO_ROOT / "data" / "seed" / "items")
+            code = cli_mod._print_combo_budget_report(dump, _owned("data/seed/items"))
         text = buffer.getvalue()
         self.assertEqual(cli_mod.EXIT_GAP, code)
         self.assertIn("combo.dear", text)
@@ -825,7 +838,7 @@ class ComboBudgetReportTests(unittest.TestCase):
         dump["derivation"]["cells"] = []
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = cli_mod._print_combo_budget_report(dump, tuning_mod.REPO_ROOT / "data" / "seed" / "items")
+            code = cli_mod._print_combo_budget_report(dump, _owned("data/seed/items"))
         self.assertEqual(cli_mod.EXIT_CLEAN, code)
         self.assertIn("PASS", buffer.getvalue())
 class TuningVersionFieldTests(unittest.TestCase):
@@ -840,8 +853,8 @@ class TuningVersionFieldTests(unittest.TestCase):
         import re
 
         readers = [
-            REPO_ROOT / "tools/seedsmith/seedsmith/adapters/items/combogen/tuning.py",
-            REPO_ROOT / "tools/seedsmith/seedsmith/adapters/items/basetypegen/tuning.py",
+            _owned("tools/seedsmith/seedsmith/adapters/items/combogen/tuning.py"),
+            _owned("tools/seedsmith/seedsmith/adapters/items/basetypegen/tuning.py"),
         ]
         read_pattern = re.compile(r'\[\s*["\']version["\']\s*\]|get\(\s*["\']version["\']')
         offenders = []

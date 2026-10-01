@@ -18,7 +18,21 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CHECKER_PATH = REPO_ROOT / "scripts" / "guard-vocabulary-mirror.py"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+CHECKER_PATH = _owned("scripts/guard-vocabulary-mirror.py")
 
 _spec = importlib.util.spec_from_file_location("guard_vocabulary_mirror", CHECKER_PATH)
 assert _spec is not None and _spec.loader is not None
@@ -217,7 +231,7 @@ class RealTreeTests(unittest.TestCase):
     own gate-flip test, `vocabulary-mirror` moved backlog -> gating in the same commit."""
 
     def test_the_real_manifest_is_fully_clean(self):
-        manifest = json.loads((REPO_ROOT / "scripts" / "vocabulary-mirrors.v1.json").read_text(encoding="utf-8"))
+        manifest = json.loads((_owned("scripts/vocabulary-mirrors.v1.json")).read_text(encoding="utf-8"))
         all_findings = []
         for pair in manifest["pairs"]:
             all_findings.extend(gvm.check_pair(REPO_ROOT, pair))

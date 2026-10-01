@@ -18,7 +18,21 @@ from pathlib import Path
 from seedsmith.adapters.creatures import generate_themes as themes_mod
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CREATURES = REPO_ROOT / "data" / "seed" / "creatures"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+CREATURES = _owned("data/seed/creatures")
 REGISTRY = CREATURES / "_registry"
 
 CURRENT = set(themes_mod.CURRENT_RUNGS)

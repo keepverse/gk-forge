@@ -30,7 +30,21 @@ from seedsmith.adapters.actions.load import load_committed  # noqa: E402
 from seedsmith.corpus import CorpusLoadError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-LIVE_ACTIONS_ROOT = REPO_ROOT / "data" / "seed" / "actions"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+LIVE_ACTIONS_ROOT = _owned("data/seed/actions")
 
 # Real, live ids — see module docstring for why these specific ones.
 REAL_FAMILY_A = "atom.searing-strike"
@@ -404,7 +418,7 @@ class OfflineGuaranteeTests(unittest.TestCase):
         offline guarantee instead (`test_validate_heal.py`: every gate/vote/round test runs against a
         stubbed transport that raises, per binding constraint 8 — only its own heal-path tests call a
         transport at all, and that one is a loopback `MockModelServer`, never a real endpoint)."""
-        package_dir = REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "adapters" / "actions"
+        package_dir = _owned("tools/seedsmith/seedsmith/adapters/actions")
         forbidden = ("llm_caller", "langchain", "langgraph", "requests", "urllib.request", "httpx")
         corpus_loader_files = {"kinds.py", "vocab.py", "load.py", "__init__.py"}
         for path in sorted(package_dir.glob("*.py")):

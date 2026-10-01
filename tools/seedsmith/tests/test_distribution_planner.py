@@ -48,7 +48,21 @@ from seedsmith.adapters.actions.load import load_committed  # noqa: E402
 from seedsmith.corpus import Corpus  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ACTIONS_ROOT = REPO_ROOT / "data" / "seed" / "actions"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ACTIONS_ROOT = _owned("data/seed/actions")
 OUTPUT_PATH = ACTIONS_ROOT / "_briefs" / "round-1.json"
 
 FAMILY_IDS = load_family_ids()                                  # the 98, read fresh (live tree)
@@ -244,7 +258,7 @@ class FamilyMotifDerivationTests(unittest.TestCase):
         self.assertEqual(basis, "intersection")
 
     def test_every_family_intersects_nonempty_against_real_data(self) -> None:
-        fam_path = REPO_ROOT / "data" / "seed" / "creatures" / "_generated" / "family-assignments.json"
+        fam_path = _owned("data/seed/creatures/_generated/family-assignments.json")
         lean_path = ACTIONS_ROOT / "_generated" / "role-lean.json"
         if not fam_path.is_file() or not lean_path.is_file():
             self.skipTest("A-S0 outputs not yet generated in this checkout")
@@ -268,7 +282,7 @@ class FamilyMotifDerivationTests(unittest.TestCase):
         """The histogram is a READING of the current family map (it moves as species ship), so the
         contract is reconciliation: bin counts sum to the distinct-family count, and the membership
         total is the per-species sum — never a pinned `{7:1, ...}` snapshot (validation-ssot.md)."""
-        fam_path = REPO_ROOT / "data" / "seed" / "creatures" / "_generated" / "family-assignments.json"
+        fam_path = _owned("data/seed/creatures/_generated/family-assignments.json")
         if not fam_path.is_file():
             self.skipTest("family-assignments.json not present in this checkout")
         family_assignments = json.loads(fam_path.read_text(encoding="utf-8"))
@@ -506,7 +520,7 @@ class RungWindowAndStructureAxesTests(unittest.TestCase):
     structural consequences the shipped windows produce are still asserted, derived from the loaded
     ceilings instead of a second copy of the numbers."""
 
-    RUNGS_PATH = REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"
+    RUNGS_PATH = _owned("data/tuning/action-rungs.v3.json")
     #: One shared, closed row shape -- a fixture's rows are never the thing under test.
     AXES = ("scopeSplit", "riderStatus", "condition", "sequence", "consumption", "reaction",
             "restriction")
@@ -1122,7 +1136,7 @@ class DryRunAndOfflineTests(unittest.TestCase):
             with patch.object(gen_mod, "SMOKE_GATE_EVIDENCE_PATH", gate_path):
                 summary = gen_mod.regenerate(
                     actions_root=tmp_path / "actions",
-                    creatures_root=REPO_ROOT / "data" / "seed" / "creatures",
+                    creatures_root=_owned("data/seed/creatures"),
                     full_flag=True, write=False)
             self.assertFalse((tmp_path / "actions" / "_briefs" / "round-1.json").exists())
             self.assertFalse(summary["written"])
@@ -1380,8 +1394,8 @@ class TopUpMergeTests(unittest.TestCase):
             species_ids=["a", "b"], family_members={"fam": ["a", "b"]}, species_anchor=species_anchor,
             weights_by_key={("species", "a"): _weights(), ("species", "b"): _weights(),
                             ("family", "fam"): _weights()},
-            rung_table=dp.load_rung_table(REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"),
-            windows=dp.load_scope_windows(REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"),
+            rung_table=dp.load_rung_table(_owned("data/tuning/action-rungs.v3.json")),
+            windows=dp.load_scope_windows(_owned("data/tuning/action-rungs.v3.json")),
             family_ids=FAMILY_IDS, pairing_table={}, general_count=2, per_species_count=1,
             per_family_count=1, multiplicative_pairs=(("atom.keen-edge", "atom.cruelty"),),
             family_motif_max=6, corpus_hash="fixed", tuning_version=1,
@@ -1547,8 +1561,8 @@ class DeterminismTests(unittest.TestCase):
         kwargs = dict(
             species_ids=["a"], family_members={"fam": ["a"]}, species_anchor=species_anchor,
             weights_by_key=weights_by_key, rung_table=dp.load_rung_table(
-                REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"),
-            windows=dp.load_scope_windows(REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"),
+                _owned("data/tuning/action-rungs.v3.json")),
+            windows=dp.load_scope_windows(_owned("data/tuning/action-rungs.v3.json")),
             family_ids=FAMILY_IDS, pairing_table={}, general_count=2, per_species_count=1,
             per_family_count=1, multiplicative_pairs=(("atom.keen-edge", "atom.cruelty"),),
             family_motif_max=6, corpus_hash="fixed", tuning_version=1,
@@ -1634,21 +1648,21 @@ class ConstraintFourGateTests(unittest.TestCase):
 
     def test_gate_1_power_budget_row_now_exists(self) -> None:
         # A-G1 gate 1: gk-core/data/tuning/action-rungs.v2.json carries powerBudgetMilli on every row.
-        doc = json.loads((REPO_ROOT / "data" / "tuning" / "action-rungs.v2.json").read_text(encoding="utf-8"))
+        doc = json.loads((_owned("data/tuning/action-rungs.v2.json")).read_text(encoding="utf-8"))
         self.assertTrue(all("powerBudgetMilli" in row for row in doc["rows"]))
 
     def test_gate_3_power_budget_has_a_real_production_caller_now(self) -> None:
         # A-G1 gate 3: ContentValidation.Budget's rung-keyed overload is wired into
         # RpgStore.BuildActionCatalog (the WebMatchService battle-resolve path), not just its own
         # tests. A rejection reason naming the check is the marker.
-        text = (REPO_ROOT / "src" / "FusionRpg.Data" / "Sqlite" / "RpgStore.ActionCatalog.cs").read_text(encoding="utf-8")
+        text = (_owned("src/FusionRpg.Data/Sqlite/RpgStore.ActionCatalog.cs")).read_text(encoding="utf-8")
         self.assertIn("PowerBudgetExceeded", text)
         self.assertIn("ContentValidation.Budget", text)
 
     def test_gate_2_multiplicative_pricing_is_still_open(self) -> None:
         # A-G1 gate 2 (D2, multiplicative / family-aware non-additive pricing) is explicitly NOT
         # this module's to close -- confirm definitions.md still records it open rather than assume.
-        text = (REPO_ROOT / "docs" / "architecture" / "effect-atom" / "definitions.md").read_text(encoding="utf-8")
+        text = (_owned("docs/architecture/effect-atom/definitions.md")).read_text(encoding="utf-8")
         self.assertIn("multiplicative pricing is", text)
         self.assertIn("**open**, not solved", text)
 
@@ -1738,7 +1752,7 @@ class MagicNumberAuditTests(unittest.TestCase):
     def test_audit_script_confirms_it_does_not_cover_python_paths(self) -> None:
         import subprocess
         result = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "scripts" / "audit-magic-numbers.py"), "--summary"],
+            [sys.executable, str(_owned("scripts/audit-magic-numbers.py")), "--summary"],
             capture_output=True, text=True, cwd=str(REPO_ROOT))
         self.assertNotIn("seedsmith", result.stdout.lower())
 

@@ -43,12 +43,26 @@ from .record import (
 from .selectors import resolve_selector
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-DEFAULT_ANCHORS_DIR = REPO_ROOT / "data" / "seed" / "creatures" / "species"
-DEFAULT_RUNS_DIR = REPO_ROOT / "data" / "seed" / "creatures" / "_runs"
-DEFAULT_FAMILY_ASSIGNMENTS = REPO_ROOT / "data" / "seed" / "creatures" / "_generated" / "family-assignments.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DEFAULT_ANCHORS_DIR = _owned("data/seed/creatures/species")
+DEFAULT_RUNS_DIR = _owned("data/seed/creatures") / "_runs"
+DEFAULT_FAMILY_ASSIGNMENTS = _owned("data/seed/creatures/_generated/family-assignments.json")
 #: The fusion-recipe-generator's own committed seed (`emit.py`'s `DEFAULT_OUTPUT_RELATIVE`) —
 #: read-only here, never reimplemented or duplicated.
-DEFAULT_FUSION_RECIPES_PATH = REPO_ROOT / "data" / "generated" / "creatures" / "_fusion-recipes.json"
+DEFAULT_FUSION_RECIPES_PATH = _owned("data/generated/creatures/_fusion-recipes.json")
 
 #: In-progress record — gitignored, lives beside the checkpoint (spec §3: "committed only for
 #: completed runs; in-progress records live beside the checkpoint DB and are gitignored").

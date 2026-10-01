@@ -25,7 +25,21 @@ from seedsmith.adapters.structures.generate_corpus import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-TUNING_PATH = REPO_ROOT / "data" / "tuning" / "structure-seed.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+TUNING_PATH = _owned("data/tuning/structure-seed.v1.json")
 
 _KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _SCHEMA_FIELDS = frozenset(build_structure_anchor_schema()["properties"].keys())
@@ -72,8 +86,8 @@ def test_dumped_magnitudes_match_the_real_tuning_files_not_a_hand_copied_number(
     # siege.v1.json directly (the SAME files StructureCatalog.cs's own Loam.LoamPolicy/
     # SiegeTuningPolicy wrappers read) rather than re-asserting the numbers this test file would
     # otherwise just be trusting generate_corpus.py to have copied correctly.
-    loam = json.loads((REPO_ROOT / "data" / "tuning" / "loam.v4.json").read_text(encoding="utf-8"))["structures"]
-    siege = json.loads((REPO_ROOT / "data" / "tuning" / "siege.v1.json").read_text(encoding="utf-8"))
+    loam = json.loads((_owned("data/tuning/loam.v4.json")).read_text(encoding="utf-8"))["structures"]
+    siege = json.loads((_owned("data/tuning/siege.v1.json")).read_text(encoding="utf-8"))
     by_id = {row["id"]: row["magnitudes"] for row in DUMPED_ROWS}
 
     assert by_id["well"]["cost"] == loam["wellCost"]
@@ -243,7 +257,7 @@ def test_corpus_holds_no_numbers():
         assert defects == [], f"{row['id']}'s anchor has numeric field(s): {defects}"
 
 
-ALMANAC_ROOT = REPO_ROOT / "data" / "seed" / "creatures" / "_dump" / "almanac"
+ALMANAC_ROOT = _owned("data/seed/creatures/_dump/almanac")
 
 
 def _normalize(s: str) -> str:
@@ -325,7 +339,7 @@ def test_relic_vault_row_is_a_catalog_loadable_item_storage_row():
     # against the COMMITTED corpus on disk, never the in-memory generator tree. No count pin
     # (validation-ssot): presence + closed-enum membership + the authored value, not a total.
     doc = json.loads(
-        (REPO_ROOT / "data" / "seed" / "structures" / "store" / "relic-vault.json")
+        (_owned("data/seed/structures/store/relic-vault.json"))
         .read_text(encoding="utf-8"))
     assert doc["kind"] == "structure-anchor"
     (row,) = doc["entries"]

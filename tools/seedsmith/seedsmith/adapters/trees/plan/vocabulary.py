@@ -15,6 +15,20 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 
 class VocabularyError(ValueError):
     """EXIT_CANNOT_RUN — a roster mirror is missing or unreadable. Never an empty axis."""
@@ -56,7 +70,7 @@ def load_family_roster_or_pending(seed_root: "Path | None" = None) -> "tuple[tup
 
     Reads `gk-data/packs/fusion/data/seed/creatures/_registry/families.v1.json`'s `families` map, keyed by canonical key —
     the same registry the creature program already ships (19 entries as of 2026-09)."""
-    root = seed_root or (REPO_ROOT / "data" / "seed")
+    root = seed_root or (_owned("data/seed"))
     path = root / "creatures" / "_registry" / "families.v1.json"
     if not path.exists():
         return (), True
@@ -66,7 +80,7 @@ def load_family_roster_or_pending(seed_root: "Path | None" = None) -> "tuple[tup
 
 
 def load_roster(seed_root: "Path | None" = None) -> Roster:
-    root = seed_root or (REPO_ROOT / "data" / "seed")
+    root = seed_root or (_owned("data/seed"))
     aptitude_doc = _read_json(root / "aptitudes" / "roster.json")
     element_doc = _read_json(root / "elements" / "roster.json")
     status_doc = _read_json(root / "statuses" / "roster.json")
@@ -103,7 +117,7 @@ EXCLUSION_FORM = ("reroute", "precedence", "nullification")
 
 
 def load_property_vocabulary(tier_count: int, seed_root: "Path | None" = None) -> PropertyVocabulary:
-    root = seed_root or (REPO_ROOT / "data" / "seed")
+    root = seed_root or (_owned("data/seed"))
     roster = load_roster(root)
 
     aptitude_doc = _read_json(root / "aptitudes" / "roster.json")

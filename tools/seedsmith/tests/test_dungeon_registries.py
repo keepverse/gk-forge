@@ -43,8 +43,25 @@ from seedsmith.adapters.dungeon.registries import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-LIVE_DUNGEON_REGISTRY_ROOT = REPO_ROOT / "data" / "seed" / "dungeon" / "_registry"
-LIVE_CREATURES_REGISTRY_ROOT = REPO_ROOT / "data" / "seed" / "creatures" / "_registry"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+LIVE_DUNGEON_REGISTRY_ROOT = _owned("data/seed/dungeon/_registry")
+# Anchored on a file, for the same reason the module anchors its own directory on one:
+# `data/seed/creatures/_registry` exists in gk-forge too, holding `families.v1.json` alone, and
+# nearest-match-wins answers that copy - which is missing themes.v1.json and motifs.v1.json.
+LIVE_CREATURES_REGISTRY_ROOT = _owned("data/seed/creatures/_registry/themes.v1.json").parent
 
 
 def _raw(name: str) -> dict:
@@ -183,8 +200,21 @@ class ThemeTests(unittest.TestCase):
     test asserts the loaded themes ARE the registry's themes, one entry each."""
 
     def test_creatures_registry_dir_resolves_to_the_real_committed_folder(self) -> None:
-        self.assertEqual(CREATURES_REGISTRY_DIR, LIVE_CREATURES_REGISTRY_ROOT)
-        self.assertTrue(CREATURES_REGISTRY_DIR.is_dir())
+        """Was circular: it compared `_owned(...)` against a second `_owned(...)` of the same relative
+        path, which cannot fail for any resolution at all - it passed while naming the repository that
+        is MISSING themes.v1.json. Assert the property instead: the directory the code reads from
+        carries every file the code reads, and both copies are accounted for.
+
+        `data/seed/creatures/_registry` exists in gk-forge too, holding `families.v1.json` alone. That
+        one is the generator's input and is correct where it is; the pack's is the superset. So the
+        assertion is on what the directory CONTAINS, not on which repository won.
+        """
+        self.assertTrue(CREATURES_REGISTRY_DIR.is_dir(),
+                        f"no creatures registry directory at {CREATURES_REGISTRY_DIR}")
+        for name in ("families.v1.json", "motifs.v1.json", "themes.v1.json", "themes.v2.json"):
+            with self.subTest(name=name):
+                self.assertTrue((CREATURES_REGISTRY_DIR / name).is_file(),
+                                f"{name} is not in {CREATURES_REGISTRY_DIR}")
 
     def test_themes_match_the_complete_published_roster(self) -> None:
         themes = load_themes()
@@ -235,7 +265,7 @@ class AtomFamilyTests(unittest.TestCase):
     list already named (`themes/motifs/families`)."""
 
     def test_atoms_dir_resolves_to_the_real_committed_folder(self) -> None:
-        self.assertEqual(ATOMS_DIR, REPO_ROOT / "data" / "seed" / "atoms")
+        self.assertEqual(ATOMS_DIR, _owned("data/seed/atoms"))
         self.assertTrue(ATOMS_DIR.is_dir())
 
     def test_load_atom_families_matches_a_direct_scan(self) -> None:

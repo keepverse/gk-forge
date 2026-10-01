@@ -26,18 +26,46 @@ from pathlib import Path
 
 from ..combogen.tuning import SOCKETS_PATH as SOCKETS_TUNING
 
+from ....workspace_roots import owning_base  # noqa: E402
+
+# `data/seed/**` is the CONTENT PACK's tree - gk-data/packs/fusion/data/seed - and gk-forge owns the
+# GENERATOR, not the corpus. The split left generator inputs beside their generator, so a path walked
+# up from this file lands on gk-forge and every registry read asked gk-forge/data/seed/items/_registry,
+# a directory that does not exist. Measured, not assumed: owning_base() answers for this relative path
+# and returns the pack; root_carrying() does NOT, because an ancestor walk reaches the workspace root,
+# which does not carry data/seed; and content_root() RAISES for a temp directory, which these modules
+# are imported by way of. `or REPO_ROOT` keeps that case working, which is what a non-raising lookup
+# buys.
 REPO_ROOT = Path(__file__).resolve().parents[6]
-CORE_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "core.v1.json"
-CLASSES_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "classes.v3.json"
-TAGS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "tags.v1.json"
-NAMING_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "naming.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
+
+def _seed_root(relative: str) -> "Path":
+    """The repository carrying `relative`, falling back to this one when none does."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+CORE_REGISTRY = _owned("data/seed/items/_registry/core.v1.json")
+CLASSES_REGISTRY = _owned("data/seed/items/_registry/classes.v3.json")
+TAGS_REGISTRY = _seed_root("data/seed/items/_registry") / "tags.v1.json"
+NAMING_REGISTRY = _owned("data/seed/items/_registry/naming.v1.json")
 #: The sockets tuning revision is ONE constant, owned by the combogen reader and imported here
 #: (strain-splice-host SSH5.6, circuit-topology §4): a second path literal here is how one generator
 #: stays on an old revision. `basetypegen` never re-derives a ceiling, only reads it.
-GEN_TUNING = REPO_ROOT / "data" / "tuning" / "base-types-gen.v1.json"
-MILESTONES_CORPUS = REPO_ROOT / "data" / "seed" / "items" / "enhancement-milestones" / \
-    "milestones.json"
-BASE_TYPES_DIR = REPO_ROOT / "data" / "seed" / "items" / "base-types"
+GEN_TUNING = _owned("data/tuning/base-types-gen.v1.json")
+MILESTONES_CORPUS = _owned("data/seed/items/enhancement-milestones/milestones.json")
+BASE_TYPES_DIR = _owned("data/seed/items/base-types")
 
 FRAMES: "tuple[str, ...]" = ("humanoid", "plant")
 

@@ -28,8 +28,22 @@ from seedsmith.adapters.effects.affix.prompts import (
 from seedsmith.workflow.graphs.effect_affix import build_affix_authoring_graph, state_for_affix
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ADAPTER_DIR = REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "adapters" / "effects" / "affix"
-GRAPH_FILE = REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "workflow" / "graphs" / "effect_affix.py"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ADAPTER_DIR = _owned("tools/seedsmith/seedsmith/adapters/effects/affix")
+GRAPH_FILE = _owned("tools/seedsmith/seedsmith/workflow/graphs/effect_affix.py")
 
 
 # ---- affix_class is derived, never authored (P1 / seed-contract §2.1) -------------------------------

@@ -57,7 +57,21 @@ from .seedfile import ITEM_SEED_ROOT, bind_member_base_types, load_base_type_can
 from .species_repair import plan_set_partitions, write_document
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-CORE_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "core.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+CORE_REGISTRY = _owned("data/seed/items/_registry/core.v1.json")
 
 #: The sentence `core.v1.json` states each drop's hand-off in, e.g. *"its shield families migrate to
 #: core-guard at a reduced tier cap instead."* Read, not transcribed: the registry is the authority

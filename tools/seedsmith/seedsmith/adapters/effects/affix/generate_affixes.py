@@ -75,14 +75,28 @@ from ....workflow.state import new_state
 from .prompts import ID_PREFIX, build_brief, build_context, entry_for
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-ATOMS_ROOT = REPO_ROOT / "data" / "seed" / "atoms"
-OUTPUT_DIR = REPO_ROOT / "data" / "seed" / "effects" / "affixes"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ATOMS_ROOT = _owned("data/seed/atoms")
+OUTPUT_DIR = _owned("data/seed/effects/affixes")
 
 #: The real, committed member vocabulary of the one slot DOMAIN this repo actually documents.
 #: `RpgStore.Containers.cs`'s own `DomainMembers` returns `ElementRoster.Concrete` for `"element"`
 #: and an empty list for every other domain name — so `element` is not merely the first domain, it
 #: is the only one with members at all. Read from the real roster rather than hardcoded.
-ELEMENT_ROSTER = REPO_ROOT / "data" / "seed" / "elements" / "roster.json"
+ELEMENT_ROSTER = _owned("data/seed/elements/roster.json")
 
 PROMPT_VERSION = "affix-authoring/1"
 

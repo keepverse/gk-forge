@@ -31,12 +31,26 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
 #: species-gear-chain T16: reads v2 (rarity corrected, keys unchanged) — v1 stays in place,
 #: unretired, for whatever still binds it.
-CREATURE_THEME_REGISTRY = REPO_ROOT / "data" / "seed" / "creatures" / "_registry" / "themes.v2.json"
-CREATURE_SPECIES_ROOT = REPO_ROOT / "data" / "seed" / "creatures" / "species"
-BUILD_THEME_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "build-themes.v1.json"
-LEGACY_THEME_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "themes.v1.json"
+CREATURE_THEME_REGISTRY = _owned("data/seed/creatures/_registry/themes.v2.json")
+CREATURE_SPECIES_ROOT = _owned("data/seed/creatures/species")
+BUILD_THEME_REGISTRY = _owned("data/seed/items/_registry/build-themes.v1.json")
+LEGACY_THEME_REGISTRY = _owned("data/seed/items/_registry/themes.v1.json")
 
 #: The basis a theme must have reached before it may be generated from. `theme-enrich` (P0.3)
 #: records model-authored lore as ``enriched`` rather than pretending it was observed source text.
@@ -125,7 +139,7 @@ def legacy_theme_ids(path: "Path | None" = None) -> "frozenset[str]":
 def legacy_partition_ids(naming_path: "Path | None" = None) -> "frozenset[str]":
     """The FIVE `themeId`s `naming.v1.json` actually pinned as set partitions — a tighter set than
     the 13 registered legacy themes, and the one a generated set id is checked against."""
-    path = naming_path or (REPO_ROOT / "data" / "seed" / "items" / "_registry" / "naming.v1.json")
+    path = naming_path or (_owned("data/seed/items/_registry/naming.v1.json"))
     doc = json.loads(path.read_text(encoding="utf-8"))
     return frozenset(doc["idNamespaces"]["sets"]["themeIds"])
 

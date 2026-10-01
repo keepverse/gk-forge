@@ -34,10 +34,23 @@ from seedsmith.pipeline.model import BLOCKED_FIELD, audit_schema  # noqa: E402
 from seedsmith.pipeline.run_ledger import RunLedger  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-GEMS_DIR = REPO_ROOT / "data" / "seed" / "items" / "gems"
-AFFIX_FAMILIES_DIR = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
-SNAPSHOT_PATH = (REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "adapters" / "items"
-                / "_registry_snapshot" / "allocated_partitions.json")
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+GEMS_DIR = _owned("data/seed/items/gems")
+AFFIX_FAMILIES_DIR = _owned("data/seed/items/affix-families")
+SNAPSHOT_PATH = (_owned("tools/seedsmith/seedsmith/adapters/items/_registry_snapshot/allocated_partitions.json"))
 
 
 def _real_affix_family_ids() -> "frozenset[str]":

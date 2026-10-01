@@ -25,7 +25,21 @@ from .vote import assign_input_a_b, resolve_fusion_pair_vote
 from ....tooling import run_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[6]  # tools/seedsmith/seedsmith/adapters/creatures/fusion/reconcile.py -> repo root
-DEFAULT_SEAM_PROJECT = REPO_ROOT / "tools" / "CreatureRecipeReconcileInput"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DEFAULT_SEAM_PROJECT = _owned("tools/CreatureRecipeReconcileInput")
 
 #: §3a: bump when the propose prompt/schema shape changes in a way that should force every
 #: existing gap-fill entry to be re-derived, even though its candidate pool is unchanged.

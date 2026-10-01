@@ -35,12 +35,26 @@ from seedsmith.adapters.trees.plan.archetypes import (  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]  # tools/seedsmith/tests -> repo root
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 # tree-state's own two constants live in `aptitudes.v7.json` (class-system's tuning file, D34/D38,
 # spec-tree-state.md §3/§8) — a different program's file, so there is no shared Python loader for it
 # yet. Read directly, same `_require`-by-hand discipline as `plan_tuning.py`'s own loader: a missing
 # key fails loudly rather than substituting a default (tunables-ssot T5). v6 -> v7 (D55, 2026-09-06)
 # only touched creatureType/aspect/uniqueCreature; commander (read below) is untouched.
-APTITUDES_TUNING_PATH = REPO_ROOT / "data" / "tuning" / "aptitudes.v7.json"
+APTITUDES_TUNING_PATH = _owned("data/tuning/aptitudes.v7.json")
 
 
 def _load_aptitude_economy() -> dict:

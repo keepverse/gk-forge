@@ -49,12 +49,27 @@ from .. import registries
 from . import opvocab
 from .schema import affix_family_schema
 
+from ....workspace_roots import owning_base  # noqa: E402
+
+# `data/seed/**` is the CONTENT PACK's tree - gk-data/packs/fusion/data/seed - and gk-forge owns the
+# GENERATOR, not the corpus. The split left generator inputs beside their generator, so a path walked
+# up from this file lands on gk-forge and every registry read asked gk-forge/data/seed/items/_registry,
+# a directory that does not exist. Measured, not assumed: owning_base() answers for this relative path
+# and returns the pack; root_carrying() does NOT, because an ancestor walk reaches the workspace root,
+# which does not carry data/seed; and content_root() RAISES for a temp directory, which these modules
+# are imported by way of. `or REPO_ROOT` keeps that case working, which is what a non-raising lookup
+# buys.
 REPO_ROOT = Path(__file__).resolve().parents[6]
-NAMING_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "naming.v1.json"
-TAGS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "tags.v1.json"
-CORE_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "core.v1.json"
-BANDS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "bands.v1.json"
-FAMILIES_DIR = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
+
+
+def _seed_root(relative: str) -> "Path":
+    """The repository carrying `relative`, falling back to this one when none does."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+NAMING_REGISTRY = _seed_root("data/seed/items/_registry") / "naming.v1.json"
+TAGS_REGISTRY = _seed_root("data/seed/items/_registry") / "tags.v1.json"
+CORE_REGISTRY = _seed_root("data/seed/items/_registry") / "core.v1.json"
+BANDS_REGISTRY = _seed_root("data/seed/items/_registry") / "bands.v1.json"
+FAMILIES_DIR = _seed_root("data/seed/items/affix-families")
 
 
 class UnknownGroupError(ValueError):

@@ -27,20 +27,34 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-DROP_TABLES_DIR = REPO_ROOT / "data" / "seed" / "items" / "drop-tables"
-BASE_TYPES_DIR = REPO_ROOT / "data" / "seed" / "items" / "base-types"
-MATERIALS_PATH = REPO_ROOT / "data" / "seed" / "items" / "materials" / "materials.json"
-CONSUMABLES_DIR = REPO_ROOT / "data" / "seed" / "items" / "consumables"
-GEMS_DIR = REPO_ROOT / "data" / "seed" / "items" / "gems"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DROP_TABLES_DIR = _owned("data/seed/items/drop-tables")
+BASE_TYPES_DIR = _owned("data/seed/items/base-types")
+MATERIALS_PATH = _owned("data/seed/items/materials/materials.json")
+CONSUMABLES_DIR = _owned("data/seed/items/consumables")
+GEMS_DIR = _owned("data/seed/items/gems")
 #: spec-relic-item-kind.md §Design 1/4a (empire-development Task 1.3b): relic anchors live here
 #: once authored through the new `relic` KindSpec. Empty/missing until Task 1.3c authors content --
 #: `load_relic_ids()` below reads it fresh, so an empty corpus resolves to an empty set, never an
 #: error (a missing directory simply globs to nothing, the same shape as an empty partition).
-RELICS_DIR = REPO_ROOT / "data" / "seed" / "items" / "relics"
-CURVES_PATH = REPO_ROOT / "data" / "seed" / "items" / "curves" / "curves.json"
-CORE_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "core.v1.json"
-BANDS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "bands.v1.json"
-NAMING_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "naming.v1.json"
+RELICS_DIR = _owned("data/seed/items/relics")
+CURVES_PATH = _owned("data/seed/items/curves/curves.json")
+CORE_REGISTRY = _owned("data/seed/items/_registry/core.v1.json")
+BANDS_REGISTRY = _owned("data/seed/items/_registry/bands.v1.json")
+NAMING_REGISTRY = _owned("data/seed/items/_registry/naming.v1.json")
 
 #: naming.v1.json idNamespaces.dropTables: partitionCount is a FROZEN 4 (d1..d4), unlike gems/
 #: materials/base-types, which grow open-endedly. A new batch appends to one of the four existing

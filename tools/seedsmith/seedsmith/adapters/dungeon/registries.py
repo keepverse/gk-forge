@@ -17,7 +17,21 @@ from pathlib import Path
 from seedsmith.ladders import THREAT_BAND as _THREAT_BAND
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-REGISTRY_DIR = REPO_ROOT / "data" / "seed" / "dungeon" / "_registry"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ...workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+REGISTRY_DIR = _owned("data/seed/dungeon/_registry")
 
 #: `theme`'s own vocabulary has no dungeon-registries home (spec-dungeon-seed-contract.md:44:
 #: `` `themes.v1.json` (84 rows) `` — stale count from the old 84-species catalog, 904 rows today and
@@ -30,7 +44,12 @@ REGISTRY_DIR = REPO_ROOT / "data" / "seed" / "dungeon" / "_registry"
 #: `spec-creature-themes.md`'s own one-way publish — see this adapter's own D1.10 todo entry for the
 #: full citation trail; `adapters/items/registries.py:33-55`'s `load_theme_keys()` is the direct
 #: precedent for this exact cross-program read.
-CREATURES_REGISTRY_DIR = REPO_ROOT / "data" / "seed" / "creatures" / "_registry"
+# Anchored on a FILE, not on the directory name. `data/seed/creatures/_registry` exists in two
+# repositories and nearest-match-wins answers gk-forge, whose copy holds `families.v1.json` alone - so
+# resolving the name pointed every themes/motifs read at a directory that does not contain them. The
+# pack's copy is the superset (families, motifs, themes v1 and v2), and `themes.v1.json` names it
+# unambiguously, so ask for the file and take its parent.
+CREATURES_REGISTRY_DIR = _owned("data/seed/creatures/_registry/themes.v1.json").parent
 
 _REGISTRY_FILES = (
     "room-kinds.v1.json", "door-kinds.v1.json", "override-tags.v1.json",
@@ -45,8 +64,16 @@ def _load(name: str) -> dict:
 
 
 def _load_creatures(name: str) -> dict:
-    path = CREATURES_REGISTRY_DIR / name
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Read a creatures-registry file by asking for THE FILE, not for its directory.
+
+    `data/seed/creatures/_registry` exists in two repositories. gk-forge's holds `families.v1.json`
+    alone - its own generator input, left beside the generator by the split - while the pack's holds
+    `families.v1.json`, `motifs.v1.json`, `themes.v1.json` and `themes.v2.json`. The pack's directory is a
+    strict superset, and `owning_base` takes the NEAREST match, so resolving the DIRECTORY answers
+    gk-forge and every themes/motifs read then raised FileNotFoundError on a file that ships. Two
+    directories may share a name and not their contents; the file is the unit that is unambiguous.
+    """
+    return json.loads(_owned(f"data/seed/creatures/_registry/{name}").read_text(encoding="utf-8"))
 
 
 def load_versions() -> dict[str, int]:
@@ -136,7 +163,7 @@ def load_motifs() -> "frozenset[str]":
 #: invented list would guess), so this is a second reader of an already-precedented read, not a new
 #: boundary crossing (`families` was in the frozen-inputs list from wave 1, before either items or
 #: dungeon actually built a reader for it).
-ATOMS_DIR = REPO_ROOT / "data" / "seed" / "atoms"
+ATOMS_DIR = _owned("data/seed/atoms")
 
 
 def load_atom_families() -> "frozenset[str]":
@@ -186,7 +213,7 @@ def load_grantable_atom_families() -> "frozenset[str]":
 #: phasing/questScope/repeatScope/rewardBand/sightBand/widthBand`, no `powerBand` among them) — the
 #: SAME five-value vocabulary `unique-pipeline`'s own `fixedAtoms[].powerBand` already reads
 #: (`UniqueBudget.TierOfPowerBand`), one row per tier the atom layer has (definitions.md §1).
-ITEMS_REGISTRY_DIR = REPO_ROOT / "data" / "seed" / "items" / "_registry"
+ITEMS_REGISTRY_DIR = _owned("data/seed/items/_registry")
 
 
 def load_power_bands() -> "frozenset[str]":
@@ -204,7 +231,7 @@ def load_power_bands() -> "frozenset[str]":
 #: truth" — seedsmith is precisely that tooling (Python, no access to the C# `ZombossPatterns.All`
 #: registry it mirrors). Nine real ids: three pure-posture builds plus six non-self-cancelling
 #: (defence, breaks) pairs, two variants each (class-system-todo.md P7.5).
-ZOMBOSS_PATTERNS_PATH = REPO_ROOT / "data" / "seed" / "zomboss" / "patterns.json"
+ZOMBOSS_PATTERNS_PATH = _owned("data/seed/zomboss/patterns.json")
 
 
 def load_zomboss_pattern_ids() -> "frozenset[str]":
@@ -221,12 +248,13 @@ def load_zomboss_pattern_ids() -> "frozenset[str]":
 #: `family` array (`BloverUmbrella.family == ["aerial flora"]`, confirmed by direct read of a real
 #: species file) — `retinueFamily` references THIS registry's `canonicalKey`, never a species's own
 #: prose field. 19 real families, measured directly, not assumed.
-CREATURE_FAMILIES_PATH = CREATURES_REGISTRY_DIR / "families.v1.json"
+# Per file for the same reason as `_load_creatures`: the directory name is shared, its contents are not.
+CREATURE_FAMILIES_PATH = _owned("data/seed/creatures/_registry/families.v1.json")
 
 #: The real species corpus — `gk-data/packs/fusion/data/seed/creatures/species/**/*.json`, the SAME tree
 #: `check_boss_species.py`-style direct scans already read this session. Not under
 #: `CREATURES_REGISTRY_DIR` (that is frozen vocabulary files, not per-species anchors).
-CREATURE_SPECIES_DIR = REPO_ROOT / "data" / "seed" / "creatures" / "species"
+CREATURE_SPECIES_DIR = _owned("data/seed/creatures/species")
 
 #: The four `threatBand` values a domain's `bossSpeciesRef` may point at (rungs 7-10,
 #: `spec-domain-catalog.md` §2 row 2's own "`threatBand ≥ bossFloorRung`" — measured directly

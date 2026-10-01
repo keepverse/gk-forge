@@ -31,9 +31,23 @@ from .tuning import SetCharmGenTuning
 from .vocab import Vocabulary
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-DEFAULT_LEDGER = REPO_ROOT / "data" / "seed" / "items" / "_runs" / "set-charm-gen.ledger.json"
-DEFAULT_SETS_DIR = REPO_ROOT / "data" / "seed" / "items" / "sets"
-DEFAULT_CHARMS_DIR = REPO_ROOT / "data" / "seed" / "items" / "charms"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DEFAULT_LEDGER = _owned("data/seed/items/_runs") / "set-charm-gen.ledger.json"
+DEFAULT_SETS_DIR = _owned("data/seed/items/sets")
+DEFAULT_CHARMS_DIR = _owned("data/seed/items/charms")
 
 
 def _existing_charm_axis_counts(directory: Path = DEFAULT_CHARMS_DIR) -> dict[str, int]:

@@ -32,7 +32,21 @@ from seedsmith.metrics import Ctx, MetricRegistry, Severity, run_all  # noqa: E4
 from seedsmith.metrics.coverage import EmptyPartitionMetric  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-LIVE_ITEMS_ROOT = REPO_ROOT / "data" / "seed" / "items"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+LIVE_ITEMS_ROOT = _owned("data/seed/items")
 
 
 class KindSpecTests(unittest.TestCase):
@@ -301,7 +315,7 @@ class PartitionKeyShapeTests(unittest.TestCase):
         # while the identity that `speciesId`/`themeKey` carry stays underscored. Asserted on real
         # shipped members, never on how many there are.
         themes = json.loads(
-            (REPO_ROOT / "data" / "seed" / "creatures" / "_registry" / "themes.v2.json")
+            (_owned("data/seed/creatures/_registry/themes.v2.json"))
             .read_text(encoding="utf-8"))["themes"]
         underscored = {row["speciesId"]: key for key, row in themes.items()
                        if "_" in str(row.get("speciesId", ""))}

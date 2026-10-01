@@ -54,7 +54,21 @@ from seedsmith.metrics.dedup import (  # noqa: E402
 from seedsmith.pipeline.model import BLOCKED_FIELD, Pipeline, audit_schema  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ITEMS_ROOT = REPO_ROOT / "data" / "seed" / "items"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ITEMS_ROOT = _owned("data/seed/items")
 REGISTRY_DIR = ITEMS_ROOT / "_registry"
 SETS_DIR = ITEMS_ROOT / "sets"
 CHARMS_DIR = ITEMS_ROOT / "charms"
@@ -518,7 +532,7 @@ class DistributionTests(unittest.TestCase):
     def test_no_set_piece_is_fixed_like_a_unique_or_rolled_like_a_rare(self) -> None:
         """Both named failure modes are refused BY THE PARSER, so no run can be configured into
         them (ssot-sets §3.9)."""
-        raw = json.loads((REPO_ROOT / "data" / "tuning" / "set-charm-gen.v1.json")
+        raw = json.loads((_owned("data/tuning/set-charm-gen.v1.json"))
                          .read_text(encoding="utf-8"))
         unique_like = json.loads(json.dumps(raw))
         unique_like["piece"]["fixedIdentityAtoms"] = 0
@@ -748,7 +762,7 @@ class ThemeBridgeTests(unittest.TestCase):
                 self.assertIn(theme.theme_key, keys)
 
     def test_the_build_population_is_twelve_aptitudes_times_three_archetypes(self) -> None:
-        roster = json.loads((REPO_ROOT / "data" / "seed" / "aptitudes" / "roster.json")
+        roster = json.loads((_owned("data/seed/aptitudes/roster.json"))
                             .read_text(encoding="utf-8"))
         aptitudes = {r["id"] for r in roster["entries"]}
         build = themes_mod.load_build_themes()
@@ -1611,7 +1625,7 @@ class SC7Tests(unittest.TestCase):
                 with self.subTest(module=f"{package.name}/{path.name}"):
                     self.assertNotIn("set_eligible", body)
                     self.assertNotIn("charm_potency", body)
-        tuning_text = (REPO_ROOT / "data" / "tuning" / "set-charm-gen.v1.json").read_text(
+        tuning_text = (_owned("data/tuning/set-charm-gen.v1.json")).read_text(
             encoding="utf-8")
         self.assertNotIn("setEligible", tuning_text)
         self.assertNotIn("charmPotency", tuning_text)
@@ -1619,7 +1633,7 @@ class SC7Tests(unittest.TestCase):
     def test_the_tuning_file_carries_no_content_ceiling(self) -> None:
         """D17 is a position: the dead tail stays. A `maxGeneratedSets` key would be a hard
         progression ceiling on content breadth."""
-        doc = json.loads((REPO_ROOT / "data" / "tuning" / "set-charm-gen.v1.json")
+        doc = json.loads((_owned("data/tuning/set-charm-gen.v1.json"))
                          .read_text(encoding="utf-8"))
         flat = json.dumps(doc)
         for banned in ("maxGeneratedSets", "maxSpeciesSets", "rosterCap"):

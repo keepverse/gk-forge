@@ -29,8 +29,22 @@ from ....pipeline.provenance import provenance_model
 from ....pipeline.run_ledger import RunLedger
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-GEMS_DIR = REPO_ROOT / "data" / "seed" / "items" / "gems"
-DEFAULT_LEDGER_PATH = REPO_ROOT / "data" / "seed" / "items" / "_runs" / "gem-gen.ledger.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+GEMS_DIR = _owned("data/seed/items/gems")
+DEFAULT_LEDGER_PATH = _owned("data/seed/items/_runs/gem-gen.ledger.json")
 
 #: g1.json and g3.json both shipped exactly 20 entries. Matched here so a new partition's size
 #: doesn't stand out from its two siblings for no reason — entry-shapes.md §1 names no required

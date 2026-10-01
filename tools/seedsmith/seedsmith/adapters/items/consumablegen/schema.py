@@ -30,6 +30,20 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 # --- classId / useContext -----------------------------------------------------------------------
 # ssot-consumables.md §3.1's full six-value taxonomy, kept for validating an EXISTING corpus row
 # (the reconcile path reads all 60 shipped rows and must not choke on a class id none of them use
@@ -41,7 +55,7 @@ USE_CONTEXTS = frozenset({"menu", "dispatch", "battle", "lawn"})
 AUTHORABLE_USE_CONTEXTS = frozenset({"menu", "dispatch", "battle"})  # never `lawn` -- ssot §9 item 5(b)
 
 # --- powerBand ------------------------------------------------------------------------------------
-_BANDS_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "bands.v1.json"
+_BANDS_REGISTRY = _owned("data/seed/items/_registry/bands.v1.json")
 
 
 def load_power_bands() -> "tuple[str, ...]":
@@ -54,7 +68,7 @@ def load_power_bands() -> "tuple[str, ...]":
 
 # --- family: the EXTERNAL reference into atom-family-library.md -----------------------------------
 
-_ATOM_FAMILY_LIBRARY_DOC = REPO_ROOT / "docs" / "architecture" / "effect-atom" / "atom-family-library.md"
+_ATOM_FAMILY_LIBRARY_DOC = _owned("docs/architecture/effect-atom/atom-family-library.md")
 _LIBRARY_SECTION_START = "## 3. The library"
 _LIBRARY_SECTION_END = "## 4. Domains"
 

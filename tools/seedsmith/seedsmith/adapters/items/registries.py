@@ -9,8 +9,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ...workspace_roots import owning_base  # noqa: E402
+
+# `data/seed/**` is the CONTENT PACK's tree - gk-data/packs/fusion/data/seed - and gk-forge owns the
+# GENERATOR, not the corpus. The split left generator inputs beside their generator, so a path walked
+# up from this file lands on gk-forge and every registry read asked gk-forge/data/seed/items/_registry,
+# a directory that does not exist. Measured, not assumed: owning_base() answers for this relative path
+# and returns the pack; root_carrying() does NOT, because an ancestor walk reaches the workspace root,
+# which does not carry data/seed; and content_root() RAISES for a temp directory, which these modules
+# are imported by way of. `or REPO_ROOT` keeps that case working, which is what a non-raising lookup
+# buys.
 REPO_ROOT = Path(__file__).resolve().parents[5]
-REGISTRY_DIR = REPO_ROOT / "data" / "seed" / "items" / "_registry"
+
+
+def _seed_root(relative: str) -> "Path":
+    """The repository carrying `relative`, falling back to this one when none does."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+REGISTRY_DIR = _seed_root("data/seed/items/_registry")
 SNAPSHOT_PATH = Path(__file__).resolve().parent / "_registry_snapshot" / "allocated_partitions.json"
 
 _REGISTRY_FILES = ("bands.v1.json", "core.v1.json", "naming.v1.json", "tags.v1.json",
@@ -183,7 +198,7 @@ def tag_axis_brief_note(applies_to: str) -> str:
             f"each group below (never two from the same group):\n{lines}")
 
 
-ATOMS_DIR = REPO_ROOT / "data" / "seed" / "atoms"
+ATOMS_DIR = _seed_root("data/seed/atoms")
 
 
 def load_atom_families() -> frozenset[str]:
@@ -206,7 +221,7 @@ def load_atom_families() -> frozenset[str]:
     return frozenset(families)
 
 
-AFFIX_FAMILIES_DIR = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
+AFFIX_FAMILIES_DIR = _seed_root("data/seed/items/affix-families")
 
 
 def load_materialised_affix_family_ids() -> "frozenset[str]":

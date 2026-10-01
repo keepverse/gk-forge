@@ -33,10 +33,24 @@ from . import opvocab
 from .schema import FRAMES, MINT_NEW_SENTINEL, recipe_schema
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
 #: Mirrors the C# `SocketTuningFiles.Materials` (strain-splice-host SSH8.4) — currently v5, and it
 #: moves with that constant when a reprice publishes the next revision.
-MATERIALS_TUNING_PATH = REPO_ROOT / "data" / "tuning" / "materials.v6.json"
-RECIPES_CORPUS_PATH = REPO_ROOT / "data" / "seed" / "items" / "recipes" / "recipes.json"
+MATERIALS_TUNING_PATH = _owned("data/tuning/materials.v6.json")
+RECIPES_CORPUS_PATH = _owned("data/seed/items/recipes/recipes.json")
 
 _NOTE_KEYS = {"mirrorNote", "applicationNote"}
 
@@ -68,7 +82,7 @@ def load_material_pool(items_root: "Path | None" = None) -> "tuple[str, ...]":
     `metrics.linkage.RecipeInputs` before the model sees its vocabulary, so new recipes cannot add
     another unreachable input while old corpus debt is reconciled separately.
     """
-    corpus = Corpus.load(items_root or REPO_ROOT / "data" / "seed" / "items")
+    corpus = Corpus.load(items_root or _owned("data/seed/items"))
     acquisition = Acquisition.build(corpus)
     obtainable = set(acquisition.material_runtime_ids)
     obtainable.update(

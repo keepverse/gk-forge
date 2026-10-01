@@ -48,7 +48,21 @@ from seedsmith.planner.schedule import DEFAULT_MODEL_TIERS  # noqa: E402
 from seedsmith.report import cli as cli_mod  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ITEMS_ROOT = REPO_ROOT / "data" / "seed" / "items"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+ITEMS_ROOT = _owned("data/seed/items")
 COMBOGEN_DIR = (Path(__file__).resolve().parents[1] / "seedsmith" / "adapters" / "items"
                 / "combogen")
 
@@ -502,7 +516,7 @@ class KindMigrationTests(unittest.TestCase):
         self.assertNotIn("runtimeId", combo.required | combo.optional)
         self.assertNotIn("fixedAtoms", combo.required | combo.optional)
 
-        catalog_path = REPO_ROOT / "tools" / "ItemSeedValidator" / "Registries" / "KindCatalog.cs"
+        catalog_path = _owned("tools/ItemSeedValidator/Registries/KindCatalog.cs")
         self.assertTrue(catalog_path.exists())  # one of migrate.MIGRATION_SITES's own real paths
         catalog_src = catalog_path.read_text(encoding="utf-8")
         self.assertIn('Defined("combination"', catalog_src)
@@ -874,8 +888,7 @@ class StillBlockedReportTests(unittest.TestCase):
         NOTHING else. Guarded by checking `args.out_dir` too, not just `args.write`."""
         import tempfile
 
-        production_report = (REPO_ROOT / "data" / "seed" / "items" / "combinations"
-                             / "combination-still-blocked.json")
+        production_report = (_owned("data/seed/items/combinations/combination-still-blocked.json"))
         existed_before = production_report.exists()
         with tempfile.TemporaryDirectory() as temp:
             (Path(temp) / ".env").write_text("", encoding="utf-8")

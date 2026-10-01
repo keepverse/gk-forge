@@ -22,7 +22,21 @@ from seedsmith.adapters.structures.planner import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-TUNING = json.loads((REPO_ROOT / "data" / "tuning" / "structure-seed.v1.json").read_text(encoding="utf-8"))
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+TUNING = json.loads((_owned("data/tuning/structure-seed.v1.json")).read_text(encoding="utf-8"))
 ROWS = list(ALL_ROWS)
 
 
@@ -138,7 +152,7 @@ def test_container_policy_is_declared_the_real_sixth_decision():
 def test_committed_plan_file_matches_a_fresh_build():
     # The plan is a committed artifact (spec §1) -- this proves the checked-in _plan.json is not
     # stale against the module that produces it.
-    plan_path = REPO_ROOT / "data" / "seed" / "structures" / "_plan.json"
+    plan_path = _owned("data/seed/structures/_plan.json")
     assert plan_path.exists(), "data/seed/structures/_plan.json has not been committed yet"
     committed = json.loads(plan_path.read_text(encoding="utf-8"))
     fresh = build_plan(ROWS, TUNING, seed=committed["seed"])

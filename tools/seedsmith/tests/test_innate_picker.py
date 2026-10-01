@@ -33,11 +33,25 @@ from seedsmith.corpus import Corpus, CorpusLoadError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 
 def _cap() -> int:
     """ST3: the `+cap` offset as the entrypoint loads it -- the species rung window's own ceiling,
     read from the published table so no test pins it."""
-    return load_scope_windows(REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json")["species"][1]
+    return load_scope_windows(_owned("data/tuning/action-rungs.v3.json"))["species"][1]
 
 
 def _parse_candidate(row):
@@ -679,10 +693,10 @@ class CrossRoundPruneTests(unittest.TestCase):
         """The producer invariant itself, on the live tree — stable across generations: it
         asserts the contract (no committed id in two places), never a population count."""
         committed_ids = {e.id for e in
-                         load_committed(REPO_ROOT / "data" / "seed" / "actions")
+                         load_committed(_owned("data/seed/actions"))
                          .corpus.by_kind("action-seed")}
         offenders = []
-        for path in sorted((REPO_ROOT / "data" / "seed" / "actions" / "_rounds")
+        for path in sorted((_owned("data/seed/actions/_rounds"))
                            .glob("*/survivors.json")):
             doc = json.loads(path.read_text(encoding="utf-8"))
             for row in doc.get("entries") or []:
@@ -924,7 +938,7 @@ class RetunedWindowReachesThePickTests(unittest.TestCase):
     """ST3 contract 3, second half: the `+cap` offset is the published species window's ceiling now,
     so retuning it really moves this stage's own acceptance gate instead of a code constant."""
 
-    RUNG_TABLE_PATH = REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"
+    RUNG_TABLE_PATH = _owned("data/tuning/action-rungs.v3.json")
 
     def test_a_retuned_species_ceiling_moves_the_candidate_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1005,7 +1019,7 @@ class MagicNumberAuditTests(unittest.TestCase):
     def test_audit_script_confirms_it_does_not_cover_python_paths(self) -> None:
         import subprocess
         result = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "scripts" / "audit-magic-numbers.py"), "--summary"],
+            [sys.executable, str(_owned("scripts/audit-magic-numbers.py")), "--summary"],
             capture_output=True, text=True, cwd=str(REPO_ROOT))
         self.assertNotIn("seedsmith", result.stdout.lower())
 

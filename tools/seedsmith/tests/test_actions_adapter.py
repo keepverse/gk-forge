@@ -26,6 +26,20 @@ from seedsmith.adapters.registry import known_adapter_names, resolve_adapter  # 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 # solid-enforcement vocabulary-mirror (SE2.7, 2026-09-19): the checker lives in scripts/, not the
 # seedsmith package, so it is loaded by file path (its hyphenated filename is not a valid Python
 # module name). ClosedVocabularyTests below asserts each mirror against this manifest-resolved,
@@ -33,12 +47,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # of itself (the old `test_nine_tags`/`test_twenty_one_statuses` shape) proves nothing about the
 # original; this reads the real C# enum / the real status-catalog file every run.
 _GVM_SPEC = importlib.util.spec_from_file_location(
-    "guard_vocabulary_mirror", REPO_ROOT / "scripts" / "guard-vocabulary-mirror.py")
+    "guard_vocabulary_mirror", _owned("scripts/guard-vocabulary-mirror.py"))
 assert _GVM_SPEC is not None and _GVM_SPEC.loader is not None
 _gvm = importlib.util.module_from_spec(_GVM_SPEC)
 _GVM_SPEC.loader.exec_module(_gvm)
 
-_VOCAB_MANIFEST = json.loads((REPO_ROOT / "scripts" / "vocabulary-mirrors.v1.json").read_text(encoding="utf-8"))
+_VOCAB_MANIFEST = json.loads((_owned("scripts/vocabulary-mirrors.v1.json")).read_text(encoding="utf-8"))
 _VOCAB_PAIRS_BY_ID = {p["id"]: p for p in _VOCAB_MANIFEST["pairs"]}
 
 
@@ -172,7 +186,7 @@ class ClosedVocabularyTests(unittest.TestCase):
 
     def test_status_wire_strings_match_the_live_registration_calls(self) -> None:
         # Read the live file, not a re-typed copy — the registration TEXT is the source of truth.
-        path = REPO_ROOT / "src" / "FusionRpg.Core" / "Status" / "StatusCatalogBootstrap.cs"
+        path = _owned("src/FusionRpg.Core/Status/StatusCatalogBootstrap.cs")
         text = path.read_text(encoding="utf-8")
         for status_id in STATUSES:
             self.assertIn(f'"{status_id}"', text, status_id)
@@ -193,7 +207,7 @@ class FamilyAndPairingVocabularyTests(unittest.TestCase):
         print(f"atom families (accepted namespace): {len(regs.vocabularies['atomFamily'])}")
 
     def test_pairing_keys_match_the_live_pairings_file(self) -> None:
-        pairings_path = REPO_ROOT / "data" / "seed" / "actions" / "pairings.json"
+        pairings_path = _owned("data/seed/actions/pairings.json")
         doc = json.loads(pairings_path.read_text(encoding="utf-8"))
         regs = ActionsAdapter().registries()
         self.assertEqual(regs.vocabularies["pairingKey"], frozenset(doc.keys()))

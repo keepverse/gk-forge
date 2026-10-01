@@ -32,11 +32,24 @@ from . import emit as emit_mod
 from .schema import TAG_VOCAB, answer_schema, channel_vocab
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-OUTPUT_PATH = REPO_ROOT / "data" / "seed" / "items" / "enhancement-milestones" / "milestones.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+OUTPUT_PATH = _owned("data/seed/items/enhancement-milestones/milestones.json")
 #: Matches `RunLedger`'s own documented convention: "each generator module gets its own ledger under
 #: `gk-data/packs/fusion/data/seed/items/_runs/<module-id>.ledger.json`, matching `setgen`'s own convention."
-DEFAULT_LEDGER_PATH = REPO_ROOT / "data" / "seed" / "items" / "_runs" / \
-    "enhancement-milestones-gen.ledger.json"
+DEFAULT_LEDGER_PATH = _owned("data/seed/items/_runs/enhancement-milestones-gen.ledger.json")
 
 PROMPT_VERSION = brief_mod.PROMPT_VERSION
 DRAW_PREFIX = "milestone-draw-"

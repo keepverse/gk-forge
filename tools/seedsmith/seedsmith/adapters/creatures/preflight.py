@@ -23,8 +23,22 @@ from .anchor.schema import build_anchor_schema
 from .power.bands import ThreatTuning
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-DEFAULT_DUMP_DIR = REPO_ROOT / "data" / "seed" / "creatures" / "_dump"
-DEFAULT_LOCK_PATH = REPO_ROOT / "tools" / "seedsmith" / "requirements.lock"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ...workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DEFAULT_DUMP_DIR = _owned("data/seed/creatures/_dump")
+DEFAULT_LOCK_PATH = _owned("tools/seedsmith/requirements.lock")
 PREFLIGHT_RECORD_NAME = "_preflight.json"
 
 #: Starting value, tuned from play (this repo's own §5.3 precedent) — a generation run's output

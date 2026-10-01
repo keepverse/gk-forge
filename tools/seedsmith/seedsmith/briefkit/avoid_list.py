@@ -30,7 +30,21 @@ PLAYER_SURFACES = frozenset({"player-name", "player-prose"})
 #: package, the tool root, `tools/`, then the repo root — the same depth `nodegen/emit.py`'s own
 #: `REPO_ROOT` (`parents[6]` from one level deeper) already encodes.
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_REGISTRY_FILE = REPO_ROOT / "data" / "seed" / "ip-censor" / "_registry" / "marks.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ..workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+DEFAULT_REGISTRY_FILE = _owned("data/seed/ip-censor/_registry/marks.v1.json")
 
 
 def load_avoid_terms(registry_file: "Path | None" = None) -> "tuple[str, ...]":

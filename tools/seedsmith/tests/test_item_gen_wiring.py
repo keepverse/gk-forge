@@ -39,6 +39,20 @@ from seedsmith.adapters.items.setgen.verdict import GATING_METRICS, Verdict  # n
 from seedsmith.workflow.graphs import item_set as graph_mod  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
 TUNING = tuning_mod.load()
 VOCAB = vocab_mod.build(TUNING)
 
@@ -264,7 +278,7 @@ class OutDirGuardTests(unittest.TestCase):
                          inside.resolve())
 
     def test_a_path_outside_the_item_tree_is_allowed(self):
-        outside = REPO_ROOT / "tools" / "seedsmith" / "_sample-runs" / "x"
+        outside = _owned("tools/seedsmith") / "_sample-runs" / "x"
         self.assertEqual(seedfile_mod.resolve_out_dir(outside), outside.resolve())
 
 
@@ -746,7 +760,7 @@ class Module13DefectsFixedTests(unittest.TestCase):
         shipped content standing against §3.6, not a generator defect. The generator
         refuses to author more of it; changing the corpus is a separate, content-owning decision.
         """
-        charms_dir = REPO_ROOT / "data" / "seed" / "items" / "charms"
+        charms_dir = _owned("data/seed/items/charms")
         used: "set[str]" = set()
         rows_on_ring = 0
         for path in sorted(charms_dir.glob("*.json")):
@@ -893,7 +907,7 @@ class Module13DefectsFixedTests(unittest.TestCase):
         schema/CLI change needed. Measured directly, not derived: 55 -> 59 cells, 52 -> 57
         singletons, max unchanged."""
         entries = []
-        for path in sorted((REPO_ROOT / "data" / "seed" / "items" / "sets").glob("*.json")):
+        for path in sorted((_owned("data/seed/items/sets")).glob("*.json")):
             doc = json.loads(path.read_text(encoding="utf-8"))
             entries.extend(doc.get("entries") or [])
         report = cells.cell_report(entries)

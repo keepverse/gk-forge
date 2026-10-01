@@ -48,17 +48,31 @@ from seedsmith.metrics.registry import MetricRegistry, run_all  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from seedsmith.workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 
 def _windows():
     """ST3: the windows the entrypoint loads, read from the published rung table -- no test here
     pins a window value, and a retuned file moves every expectation below with it."""
-    return load_scope_windows(REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json")
+    return load_scope_windows(_owned("data/tuning/action-rungs.v3.json"))
 
 
 FAMILY_IDS = load_family_ids()                                    # the real 98, read fresh
 FAM_A, FAM_B = sorted(FAMILY_IDS)[:2]
-PAIRINGS_PATH = REPO_ROOT / "data" / "seed" / "actions" / "pairings.json"
-REAL_ACTIONS_ROOT = REPO_ROOT / "data" / "seed" / "actions"
+PAIRINGS_PATH = _owned("data/seed/actions/pairings.json")
+REAL_ACTIONS_ROOT = _owned("data/seed/actions")
 REAL_PLAN_PATH = REAL_ACTIONS_ROOT / "_briefs" / "round-1.json"
 
 
@@ -544,7 +558,7 @@ class RetunedWindowReachesTheReportTests(unittest.TestCase):
     """ST3 contract 3, second half: a retuned window must reach this stage's OUTPUT, not merely
     load. The planned cell's own band comes from the loaded windows, so retuning moves it."""
 
-    RUNG_TABLE_PATH = REPO_ROOT / "data" / "tuning" / "action-rungs.v3.json"
+    RUNG_TABLE_PATH = _owned("data/tuning/action-rungs.v3.json")
 
     def test_a_retuned_general_ceiling_moves_the_planned_cell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -685,12 +699,9 @@ class SmallBatchHonestyTests(unittest.TestCase):
 class OfflineGuaranteeTests(unittest.TestCase):
     def test_no_source_file_references_the_llm_transport(self) -> None:
         forbidden = ("llm_caller", "langchain", "langgraph", "requests", "urllib.request", "httpx")
-        paths = list((REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "adapters" / "actions"
-                     / "coverage_report").glob("*.py"))
-        paths.append(REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "adapters" / "actions"
-                    / "generate_coverage_report.py")
-        paths.append(REPO_ROOT / "tools" / "seedsmith" / "seedsmith" / "metrics"
-                    / "action_coverage.py")
+        paths = list((_owned("tools/seedsmith/seedsmith/adapters/actions/coverage_report")).glob("*.py"))
+        paths.append(_owned("tools/seedsmith/seedsmith/adapters/actions/generate_coverage_report.py"))
+        paths.append(_owned("tools/seedsmith/seedsmith/metrics/action_coverage.py"))
         for path in paths:
             text = path.read_text(encoding="utf-8")
             for token in forbidden:

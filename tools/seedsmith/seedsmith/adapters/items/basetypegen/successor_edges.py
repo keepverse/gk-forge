@@ -30,14 +30,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
-SUCCESSOR_EDGES_REGISTRY = REPO_ROOT / "data" / "seed" / "items" / "_registry" / "successor-edges.v1.json"
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+SUCCESSOR_EDGES_REGISTRY = _owned("data/seed/items/_registry/successor-edges.v1.json")
 
 #: The shipped emitted corpus the authored edges are ABOUT. Deliberately its own path rather than
 #: `tuning.BASE_TYPES_DIR`: that attribute is monkeypatched by callers that redirect a generator run's
 #: output (and by the generator's own tests), while the table's references are to the shipped tree — a
 #: run into a private directory must not be refused because the table names ids it cannot see. The two
 #: are the same directory in production.
-SHIPPED_BASE_TYPES_DIR = REPO_ROOT / "data" / "seed" / "items" / "base-types"
+SHIPPED_BASE_TYPES_DIR = _owned("data/seed/items/base-types")
 
 #: The `_meta.amendments` batch id and the cite a reviewer reads for WHY the key moved.
 AMENDMENT_BATCH = "successor-edges"

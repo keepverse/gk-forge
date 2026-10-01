@@ -20,10 +20,24 @@ from pathlib import Path
 from ....tooling import run_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
+
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ....workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
 #: Mirrors the C# `SocketTuningFiles.StrainSplice` (strain-splice-host SSH7.1) — still v1, and it moves
 #: with that constant when SSH7.7 publishes the ladder.
-STRAIN_SPLICE_PATH = REPO_ROOT / "data" / "tuning" / "strain-splice.v1.json"
-SOCKETS_PATH = REPO_ROOT / "data" / "tuning" / "sockets.v3.json"
+STRAIN_SPLICE_PATH = _owned("data/tuning/strain-splice.v1.json")
+SOCKETS_PATH = _owned("data/tuning/sockets.v3.json")
 
 #: Mirror of the C# `SocketLimits.SocketCircuitSize` (4): one complete circuit's width. Structural,
 #: not tunable — a Strain consumes exactly one circuit. The parity test
@@ -111,7 +125,7 @@ def latest_materials_path() -> Path:
     constant yet (SSH8.4 adds it), so the report and its parity test resolve it the way the publisher
     does rather than hard-coding a revision that the next publish would stale."""
     candidates = []
-    for path in (REPO_ROOT / "data" / "tuning").glob("materials.v*.json"):
+    for path in (_owned("data/tuning")).glob("materials.v*.json"):
         middle = path.name[len("materials") + 2:-len(".json")]
         if middle.isdigit():
             candidates.append((int(middle), path))
@@ -131,9 +145,8 @@ def combo_budget_dump(items_root: "Path | None" = None, *,
     the report shells out to `gk-forge/tools/ItemSeedValidator --combo-budget-dump` — the same
     tool-and-authority pattern `items repair-names` uses for collision groups. Raises RuntimeError if
     the tool cannot run, because a report rendered against a guessed price is worse than no report."""
-    root = Path(items_root or (REPO_ROOT / "data" / "seed" / "items"))
-    project = validator_project or (REPO_ROOT / "tools" / "ItemSeedValidator" /
-                                    "ItemSeedValidator.csproj")
+    root = Path(items_root or (_owned("data/seed/items")))
+    project = validator_project or (_owned("tools/ItemSeedValidator/ItemSeedValidator.csproj"))
     if not project.exists():
         raise RuntimeError(f"ItemSeedValidator project not found at {project}")
     proc = run_tool(

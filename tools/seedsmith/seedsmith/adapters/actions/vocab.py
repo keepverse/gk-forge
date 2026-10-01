@@ -24,6 +24,20 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
+# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
+# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
+# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
+# load-bearing - `owning_base` returns None for a path no repository carries, where
+# `content_root()` would RAISE.
+
+from ...workspace_roots import owning_base  # noqa: E402
+
+
+def _owned(relative: str) -> "Path":
+    """The repository carrying `relative`, joined to it; this one when none carries it."""
+    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+
+
 # ActionKinds.Name — gk-core/src/FusionRpg.Core/Actions/ActionEnums.cs:96-102 (spec cites :72-78 — stale,
 # see module docstring).
 ACTION_KINDS = frozenset({"basic", "innate", "skill"})
@@ -94,7 +108,7 @@ def load_family_ids() -> "frozenset[str]":
     ACCEPTED namespace is a wider set (see <see cref="load_accepted_family_ids"/>) because a
     hand-authored row may legitimately name an fx family; keeping the two apart is what stops the
     generator from ever emitting one (AC-F1 amendment, 2026-09-24).</para>"""
-    families_dir = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
+    families_dir = _owned("data/seed/items/affix-families")
     ids: set[str] = set()
     for path in sorted(families_dir.glob("*.json")):
         doc = _load_json(path)
@@ -107,7 +121,7 @@ def load_family_ids() -> "frozenset[str]":
 def load_fx_family_ids() -> "frozenset[str]":
     """The fx effect families (`data/seed/atoms/fx-*.json`, `entries[].family`; 16 ids) — a LIVE
     atom-registry namespace, disjoint from the 98 affix families. Read fresh, never transcribed."""
-    atoms_dir = REPO_ROOT / "data" / "seed" / "atoms"
+    atoms_dir = _owned("data/seed/atoms")
     ids: set[str] = set()
     for path in sorted(atoms_dir.glob("fx-*.json")):
         doc = _load_json(path)
@@ -135,7 +149,7 @@ def load_pairing_keys() -> "frozenset[str]":
     `pairedPayoffFamily` (`EnablerPayoffPairings.IsPayoff`,
     `gk-core/src/FusionRpg.Core/Actions/Seeding/EnablerPayoffPairings.cs:26`). Read fresh — this loader
     must never touch that file, only read it (§4's first bullet)."""
-    path = REPO_ROOT / "data" / "seed" / "actions" / "pairings.json"
+    path = _owned("data/seed/actions/pairings.json")
     doc = _load_json(path)
     return frozenset(doc.keys())
 
@@ -180,7 +194,7 @@ def load_family_glossary() -> "dict[str, str]":
     `displayTemplate` (measured 2026-09-05: zero missing across all 15 files), so this returns one
     entry per id with no fallback path needed for a real file; a synthetic/test fixture id simply
     has no key here, and callers must treat a miss as "no gloss available", never as a defect."""
-    families_dir = REPO_ROOT / "data" / "seed" / "items" / "affix-families"
+    families_dir = _owned("data/seed/items/affix-families")
     glossary: "dict[str, str]" = {}
     for path in sorted(families_dir.glob("*.json")):
         doc = _load_json(path)
@@ -206,7 +220,7 @@ def load_family_map_keys() -> "frozenset[str]":
     docstring previously said "53 species over 19 family ids, matching the spec's measured numbers",
     which was the legacy `CreatureSpeciesCatalog.Generated.cs` projection. A species may now map to more
     than one family (626 one, 277 two, 1 three), so the value is a LIST, never a scalar."""
-    path = REPO_ROOT / "data" / "seed" / "actions" / "_generated" / "family-map.json"
+    path = _owned("data/seed/actions/_generated/family-map.json")
     if not path.is_file():
         return frozenset()
     doc = _load_json(path)
@@ -220,7 +234,7 @@ def load_family_map_keys() -> "frozenset[str]":
     # Keep previously committed family-scoped action rows loadable while the live
     # seed roster evolves its family vocabulary. This compatibility registry is
     # seed data, never a runtime or SQLite projection.
-    registry_path = REPO_ROOT / "data" / "seed" / "creatures" / "_registry" / "families.v1.json"
+    registry_path = _owned("data/seed/creatures/_registry/families.v1.json")
     if registry_path.is_file():
         registry = _load_json(registry_path)
         family_ids.update(str(family_id) for family_id in (registry.get("families") or {}).keys())
