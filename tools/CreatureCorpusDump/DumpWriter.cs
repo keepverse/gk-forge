@@ -108,6 +108,9 @@ public static class DumpWriter
 
     // --- rendering ------------------------------------------------------------------------------
 
+    const byte CarriageReturn = 0x0D;
+    const byte LineFeed = 0x0A;
+
     /// <summary>Serialises one JSON node with the canonical writer options plus a trailing newline.</summary>
     static byte[] Render(JsonNode node) => Render(node, WriterOptions);
 
@@ -116,8 +119,55 @@ public static class DumpWriter
         using var stream = new MemoryStream();
         using (var w = new Utf8JsonWriter(stream, options))
             node.WriteTo(w);
-        stream.WriteByte((byte)'\n');
-        return stream.ToArray();
+        stream.WriteByte(LineFeed);
+        return ToLfLineEndings(stream.ToArray());
+    }
+
+    /// <summary>
+    /// Normalises the render's line endings to LF, on every platform, as the single choke point
+    /// every file in this tool passes through.
+    ///
+    /// <para><b>Why it is required, measured.</b> On net8.0 <see cref="Utf8JsonWriter"/>'s indented
+    /// output ends its lines with CRLF, while every committed corpus file is LF-only: re-rendering
+    /// the real corpus produced 260 bytes against the committed manifest's 252, first differing at
+    /// byte 1 (0x0D), and 587889 against plant.json's 574349 — a delta of exactly one CR per
+    /// structural newline (13540 = 13541 committed LF lines less the hand-appended final one).
+    /// Git stores and checks this tree out LF (<c>* text=auto eol=lf</c> in both gk-forge and
+    /// gk-data), so the bytes on disk are LF while the renderer produced CRLF:
+    /// <see cref="MatchesDisk"/> — the <c>--check</c> path — could never byte-match a committed tree
+    /// from a Windows run, whatever the hashes said. A payload-only re-render to change one field
+    /// would have moved every line ending in all seven files.</para>
+    ///
+    /// <para><b>Why the rewrite is provably lossless.</b> A CR byte in this buffer is always a
+    /// structural newline, never payload: JSON requires every control character (U+0000..U+001F, CR
+    /// included) inside a string to be escaped, and <see cref="Utf8JsonWriter"/> escapes them. A CR
+    /// that is NOT part of a CRLF pair would therefore mean a literal control byte leaked into the
+    /// output, and dropping the following byte would silently corrupt a value — so that case
+    /// throws rather than writing (fails closed, and is unreachable while the writer escapes
+    /// control characters).</para>
+    /// </summary>
+    static byte[] ToLfLineEndings(byte[] utf8)
+    {
+        var crlfCount = 0;
+        for (var i = 0; i < utf8.Length; i++)
+        {
+            if (utf8[i] != CarriageReturn) continue;
+            if (i + 1 < utf8.Length && utf8[i + 1] == LineFeed) { crlfCount++; continue; }
+            throw new InvalidOperationException(
+                "rendered JSON holds a CR that is not part of a CRLF pair at offset " + i +
+                " — a literal control byte escaped the encoder, so CRLF->LF normalisation cannot be " +
+                "proven lossless. Refusing to write rather than drop a payload byte.");
+        }
+        if (crlfCount == 0) return utf8;
+
+        var lf = new byte[utf8.Length - crlfCount];
+        var w = 0;
+        for (var i = 0; i < utf8.Length; i++)
+        {
+            if (utf8[i] == CarriageReturn) i++;   // drop the CR; the LF that follows is copied below
+            lf[w++] = utf8[i];
+        }
+        return lf;
     }
 
     public static byte[] RenderAlmanac(IReadOnlyList<DumpAlmanacRow> rows)
@@ -446,10 +496,17 @@ public static class DumpWriter
 
     /// <summary>
     /// Replaces the declared hash's bytes with the recomputed one, in place, inside the envelope's
-    /// own bytes. A full re-render would be wrong here, measurably: <c>Utf8JsonWriter</c>'s indented
-    /// output is CRLF on net8.0 — the committed envelope is 252 LF-only bytes, the renderer's is 260
-    /// and first differs at byte 1 (0x0D) — so re-rendering a committed LF tree to change one field
-    /// would move every line's ending too. Returns null with a reason rather than a partial splice.
+    /// own bytes. Returns null with a reason rather than a partial splice.
+    ///
+    /// <para><b>Splice, not re-render — and the reason is no longer the line endings.</b> A
+    /// full re-render used to be provably wrong here: <c>Utf8JsonWriter</c>'s indented output was
+    /// CRLF on net8.0, so re-rendering the committed 252-byte LF envelope produced 260 bytes first
+    /// differing at byte 1, and would have moved every line ending in all seven files. That is
+    /// fixed (<see cref="ToLfLineEndings"/>), so a re-render would now be byte-clean — but it is
+    /// still the wrong instrument. The contract this mode exists to honour is "only
+    /// <c>contentHash</c> may move", and splicing is what enforces it: it is the only path that
+    /// cannot re-derive, reorder or omit any field, because it never re-derives one. The
+    /// <see cref="RehashOnlyFailure"/> re-parse then proves the property on the result.</para>
     /// </summary>
     static byte[]? SpliceHashToken(byte[] manifestBytes, string declaredHash, string recomputed, out string failure)
     {
