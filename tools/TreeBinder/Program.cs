@@ -48,23 +48,27 @@ for (var i = 0; i < args.Length; i++)
     // exists one level down in gk-core. Roots() answers [content, core] in a workspace and a single
     // directory in a legacy checkout, so one expression serves both layouts; the walk is kept below so
     // a legacy tree still works unchanged.
-    string? contentRoot = null;
-    string? coreRoot = null;
-    var detected = KeepverseRoots.Roots(Directory.GetCurrentDirectory());
-    if (detected.Count > 0)
+    // NAMED accessors, never Roots() indexed. Roots() is "the roots a relative path should be tried
+    // against, in order, deduplicated", and it says so deliberately: no convention is encoded there, so
+    // trying content then core is correct FOR A PROBE. It adds authored content (gk-content) first, then
+    // the corpus pack, then gk-core — so `detected[0]` was gk-content and `detected[1]` was
+    // gk-data/packs/fusion. This tool therefore read gk-core/data/tuning from inside the private pack and
+    // exited 2 on 202 files that exist. A data-flow search over all nine repositories found this to be the
+    // ONLY positional claim on Roots(); the other thirteen call sites use roots[0] as try-order, which is
+    // what the accessor is for.
+    //
+    // Both accessors honour KEEPVERSE_CONTENT_ROOT / KEEPVERSE_CORE_ROOT and both return the legacy root in
+    // a pre-split checkout, so the CONTRIBUTING.md walk this replaces was redundant as well as wrong.
+    string contentRoot;
+    string coreRoot;
+    try
     {
-        contentRoot = detected[0];
-        coreRoot = detected.Count > 1 ? detected[1] : detected[0];
+        contentRoot = KeepverseRoots.Content(Directory.GetCurrentDirectory());
+        coreRoot = KeepverseRoots.Core(Directory.GetCurrentDirectory());
     }
-    else if (FindUp("CONTRIBUTING.md") is { } legacy)
+    catch (DirectoryNotFoundException ex)
     {
-        contentRoot = coreRoot = legacy;
-    }
-
-    if (contentRoot is null || coreRoot is null)
-    {
-        Console.Error.WriteLine("could not locate the workspace roots (no Keepverse workspace above " +
-                                $"{Directory.GetCurrentDirectory()}, and no CONTRIBUTING.md upward either)");
+        Console.Error.WriteLine($"could not locate the workspace roots: {ex.Message}");
         return 2;
     }
 
@@ -202,15 +206,4 @@ static (IReadOnlyDictionary<string, AffixRow>, IReadOnlyDictionary<string, AtomR
     var affixesById = AffixFamilySynthesis.WithSynthesizedFamilyAffixes(explicitAffixesById, atomsById);
 
     return (affixesById, atomsById);
-}
-
-static string? FindUp(string markerFile)
-{
-    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-    while (dir is not null)
-    {
-        if (File.Exists(Path.Combine(dir.FullName, markerFile))) return dir.FullName;
-        dir = dir.Parent;
-    }
-    return null;
 }
