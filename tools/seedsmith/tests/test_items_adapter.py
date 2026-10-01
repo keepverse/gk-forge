@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from seedsmith.adapters.items.registries import (  # noqa: E402
     REGISTRY_DIR,
     partition_kind_map,
 )
+from seedsmith.adapters.items.setgen import name_repair  # noqa: E402
 from seedsmith.corpus import Corpus  # noqa: E402
 from seedsmith.metrics import Ctx, MetricRegistry, Severity, run_all  # noqa: E402
 from seedsmith.metrics.coverage import EmptyPartitionMetric  # noqa: E402
@@ -47,6 +50,51 @@ def _owned(relative: str) -> "Path":
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
 LIVE_ITEMS_ROOT = _owned("data/seed/items")
+
+#: `--collision-groups` emits exactly two reasons and no others (Program.cs:170 `reason = "name"`,
+#: Program.cs:180 `reason = "nameKey"`). Pinned as a closed vocabulary: the filter inside
+#: `_name_collisions` would otherwise match NOTHING if the label were ever renamed, and a
+#: name-uniqueness test that compares nothing passes vacuously — the same failure mode as the
+#: under-detector this helper replaced, in the opposite direction.
+COLLISION_REASONS = frozenset({"name", "nameKey"})
+
+
+def _name_collisions(items_root: "Path") -> list:
+    """The AUTHORITY's own `name`-reasoned collision groups under `items_root`, read from
+    `dotnet run --project tools/ItemSeedValidator -- <root> --collision-groups`.
+
+    This is the same call `setgen/name_repair.plan()` consumes, so the key asserted here, the key
+    the repair computes against and the key the CI gate enforces are ONE algorithm:
+    `naming.v1.json`'s `collisionNormalization` as implemented in
+    `tools/ItemSeedValidator/Naming/NameNormalizer.cs` — lowercase, tokenize, whole-token
+    resolution, canonical pool ids, DROP the four closed connectives `of`/`the`/`a`/`and`, sort.
+    A test that re-derived any of that in Python would fork the authority, which is precisely what
+    `name_repair.py`'s own module docstring warns against.
+
+    Only `reason: "name"` is returned. A `nameKey` group is a DIFFERENT defect — the `set.item`
+    placeholder key carried by rows whose names are all distinct — owned by
+    `name_repair.repair_name_keys` and asserted in `test_item_name_repair`; folding it in would
+    make a test named for NAMES fail on a key it never claimed to cover.
+
+    Propagates the RuntimeError `collision_groups` raises when the tool cannot run. That is
+    deliberate and there is no fallback or skip: a name-uniqueness test that quietly stops
+    comparing is a worse guard than a loud failure.
+    """
+    groups = name_repair.collision_groups(items_root=Path(items_root))
+    unrecognised = {g.get("reason") for g in groups} - COLLISION_REASONS
+    if unrecognised:
+        raise AssertionError(
+            f"--collision-groups emitted unrecognised reason(s) {sorted(unrecognised)!r} against the "
+            f"pinned vocabulary {sorted(COLLISION_REASONS)!r}; the 'name' filter below would then "
+            f"match nothing and every caller would pass without comparing a single name")
+    return [g for g in groups if g.get("reason") == "name"]
+
+
+def _render_collisions(groups: "list") -> "dict":
+    """The collision groups as a comparable, readable mapping, for an assertion's failure message."""
+    return {f"{g.get('key')}: " + ", ".join(
+        f"{m.get('name')!r} [{m.get('kind')}/{m.get('id')}]" for m in g.get("members") or ())
+        for g in groups}
 
 
 class KindSpecTests(unittest.TestCase):
@@ -166,33 +214,45 @@ class LiveCorpusIntegrationTests(unittest.TestCase):
 
         ✅ 2026-09-12: the 848 NameCollision/NameKeyDuplicate findings this test surfaced are FIXED
         (generator guard + the group-driven repair; see `setgen/name_repair.py` and
-        `basetypegen/run.py`). The scope is corrected to match the authority it cites:
+        `basetypegen/run.py`).
+
+        ⛔ CORRECTED 2026-10-01 — the claim below used to be FALSE. The docstring said "Comparison
+        is the validator's own NORMALIZED key", and the body computed its own instead:
+        `" ".join(sorted(re.findall(r"[a-z0-9]+", name.casefold())))`. That key is not the
+        validator's. Measured on the real corpus, the authority reported **66** collision groups
+        and this key found **33** of them: every group it found was genuine (zero false positives),
+        so it was a silent UNDER-detector wearing the authority's name, and the missing half is
+        exactly the connective drop `NameNormalizer` performs at step 4. `naming.v1.json` states
+        that list as "the complete list … closed at exactly four entries forever" (`of`, `the`, `a`,
+        `and`), so "The Verdant Vessel" and "Verdant Vessel" are ONE idea to the validator and TWO
+        to that key. Under-detecting is the direction that hides: it can only ever pass.
+
+        The claim is now true by construction. The assertion below IS the authority's own
+        `--collision-groups` output — the same call `name_repair.plan()` consumes, via
+        `_name_collisions` — so this test, the repair and the gate cannot drift apart.
+
+        Scope, unchanged in substance but now the AUTHORITY's rather than this file's:
+        `Program.cs:138` skips `display-template`/`curve`/`recipe` for the same reason
         `NamingCheck.CheckName` sets `namesAThing = kind is not ("display-template" or "curve" or
         "recipe")` — a display template is a sentence, a curve names numeric points, and a recipe is
         a SYSTEMATIC label (`Forge: Cloth Armor`) that legitimately repeats per material/frame/band,
-        so its `nameKey` is now minted from the unique `recipe.NNN` id instead. `RecordCollision`
-        still applies corpus-wide to every kind that names a thing a player picks up, which is what
-        this asserts.
+        so its `nameKey` is minted from the unique `recipe.NNN` id instead. The comparison stays
+        corpus-wide rather than per-kind, which is what "across kinds" means here and what
+        `RecordCollision` applies to every kind that names a thing a player picks up.
 
-        Comparison is the validator's own NORMALIZED key, not the exact string: `Rolling Grave Nut`
-        and `Rolling Grave-Nut` are one idea, which is the whole point of `collisionNormalization`."""
-        exempt = {"display-template", "curve", "recipe"}
-        by_name: dict[str, list[str]] = {}
-        for entry in self.corpus.entries.values():
-            if entry.kind in exempt:
-                continue
-            name = entry.get("name")
-            if isinstance(name, str) and name:
-                key = " ".join(sorted(re.findall(r"[a-z0-9]+", name.casefold())))
-                # The validator's own `RecordCollision` returns early on an empty normalized key
-                # (`if (normalized.Key.Length == 0) return;`), so a name with no ASCII tokens —
-                # a CJK display string — is not compared. Match that, or every such pair collapses
-                # onto the empty key and reports a collision the authority does not.
-                if not key:
-                    continue
-                by_name.setdefault(key, []).append(entry.id)
-        duplicates = {name: ids for name, ids in by_name.items() if len(ids) > 1}
-        self.assertEqual(duplicates, {})
+        ⚠ TRADE-OFF, stated plainly rather than hidden behind a skip: this test now requires the
+        .NET SDK and a build of `tools/ItemSeedValidator`, where it previously required neither.
+        That dependency is not new to this suite — `test_item_name_repair.RealCorpusPlanTests`
+        already calls the very same function unconditionally against the real corpus — and a
+        uniqueness test that degrades to comparing nothing when the SDK is missing is a strictly
+        worse guard than a loud failure. There is no skip, no xfail and no fallback path here.
+        """
+        reported = _render_collisions(_name_collisions(LIVE_ITEMS_ROOT))
+        self.assertEqual(
+            reported, {},
+            f"{len(reported)} normalized-name collision group(s) under {LIVE_ITEMS_ROOT}. Each is one "
+            f"idea claimed by more than one row, so every row past the first must be renamed "
+            f"(see seedsmith `repair-names`); the first few: {sorted(reported)[:5]}")
 
     def test_empty_partitions_are_reported_only_for_allocated_but_unfilled_partitions(self) -> None:
         # ⛔ CORRECTED 2026-09-07: was 9, including two real, previously-undiscovered false positives.
@@ -234,6 +294,110 @@ class LiveCorpusIntegrationTests(unittest.TestCase):
 
         self.assertIn("attributes", findings)
         self.assertEqual(partition_kind_map()["attributes"], "attribute")
+
+
+@unittest.skipUnless((LIVE_ITEMS_ROOT / "_registry").is_dir(),
+                     "control corpora are built from the live _registry, absent in this checkout")
+class NameCollisionAuthorityControlTests(unittest.TestCase):
+    """The two directions of the assertion in `LiveCorpusIntegrationTests`, on TEMP corpora.
+
+    "The authority reports zero name collisions" is trivially satisfiable by an assertion that
+    compares nothing, and the defect this file just had was precisely a comparison that silently
+    matched too little. So both directions are executed here for real, against corpora built in a
+    temp directory and NEVER the shipped one:
+
+    * a corpus that genuinely collides must be CAUGHT — specifically by the connective drop the
+      retired Python key lacked, and across two kinds, which is what the live test's name claims; and
+    * a corpus that genuinely is clean must be CLEARED, so the catch above cannot be an assertion
+      that fires on everything.
+
+    The real `_registry` is copied in (16 files, ~675 KB) because a synthetic one would not be the
+    authority: `naming.v1.json`'s closed connective list IS the thing under test. The SDK
+    requirement is the same one the live test already carries — no skip was added to obtain it.
+    """
+
+    #: A `material` and a `set` whose names differ ONLY by a leading article. `the` is one of the
+    #: four dropped connectives, so this is ONE idea to `NameNormalizer`; to the retired key it was
+    #: two. `Abyssal`/`Maw` are deliberately left unregistered, so both resolve to themselves and
+    #: the connective is the only difference between the two keys.
+    ARTICLE_PAIR = (
+        ("materials/a.json", "material", "material.ctl-001", "The Abyssal Maw", "material.abyssal-maw"),
+        ("sets/b.json", "set", "set.ctl-001", "Abyssal Maw", "set.abyssal-maw"),
+    )
+
+    def _temp_root(self, rows) -> "Path":
+        """A throwaway items root: the REAL registry plus one single-entry file per row."""
+        temporary = tempfile.mkdtemp(prefix="gk-name-collision-control-")
+        self.addCleanup(shutil.rmtree, temporary, ignore_errors=True)
+        root = Path(temporary)
+        shutil.copytree(LIVE_ITEMS_ROOT / "_registry", root / "_registry")
+        for relative, kind, entry_id, name, name_key in rows:
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"schemaVersion": 1, "kind": kind, "entries": [
+                {"id": entry_id, "name": name, "nameKey": name_key}]}, indent=2), encoding="utf-8")
+        return root
+
+    def test_a_collision_differing_only_by_a_leading_article_is_caught(self) -> None:
+        """The exact group class the retired key missed, and CROSS-KIND, which is the live test's
+        stated scope. If this fails, `_name_collisions` has stopped detecting anything and the live
+        assertion is passing vacuously."""
+        groups = _name_collisions(self._temp_root(self.ARTICLE_PAIR))
+        self.assertEqual(len(groups), 1,
+                         f"the injected cross-kind collision was not reported as one group: {groups}")
+        self.assertEqual(groups[0].get("key"), "abyssal maw",
+                         "the group key is the canonical id list with `the` dropped")
+        members = groups[0].get("members") or ()
+        self.assertEqual({m.get("id") for m in members},
+                         {"material.ctl-001", "set.ctl-001"},
+                         "both rows must land in ONE group, which is what corpus-wide comparison "
+                         "and two different kinds mean together")
+        self.assertEqual({m.get("kind") for m in members}, {"material", "set"},
+                         "the group must span two kinds, not merely two rows of one")
+
+        # The retired implementation's own key, kept for ONE purpose: falsifying its old docstring
+        # in-test rather than in a comment. It separates this pair, which is how 66 real groups were
+        # reported as 33 with no false positive anywhere to betray the shortfall.
+        def retired_key(name: str) -> str:
+            return " ".join(sorted(re.findall(r"[a-z0-9]+", name.casefold())))
+
+        self.assertNotEqual(retired_key("The Abyssal Maw"), retired_key("Abyssal Maw"),
+                            "the retired key used to be the under-detector; if it now agrees, this "
+                            "control is no longer covering the class of defect it exists for")
+
+    def test_a_corpus_whose_names_are_all_distinct_ideas_is_cleared(self) -> None:
+        """The other direction. Without it the test above could be satisfied by a comparison that
+        reports a collision for everything."""
+        distinct = (self.ARTICLE_PAIR[0],
+                    ("sets/b.json", "set", "set.ctl-001", "Ember Legion", "set.ember-legion"))
+        self.assertEqual(_name_collisions(self._temp_root(distinct)), [],
+                         "two genuinely different names must not be reported as one idea")
+
+    def test_the_live_assertion_itself_fails_on_a_corpus_that_really_does_collide(self) -> None:
+        """⛔ The falsification that gives the live test its value, on a TEMP corpus.
+
+        The live assertion is `assertEqual(_render_collisions(_name_collisions(root)), {})`. Running
+        that SAME expression over a corpus seeded with one real collision must FAIL. If it passed,
+        the live test would be satisfied by a comparison that never fires, and its green would mean
+        nothing — which is the failure mode this file's defect was: a test that looked like the
+        authority and quietly compared less.
+
+        Built by calling the live assertion's own code path, so it cannot drift away from what the
+        live test actually does. `assertEqual(..., {})` raises `AssertionError` on a non-empty
+        mapping, which is precisely the rejection being demonstrated; the `assertRaises` here is the
+        CONTROL asserting the rejection, not an escape hatch around the live assertion, which
+        remains an unconditional `assertEqual` with no guard of any kind.
+        """
+        case = self._temp_root(self.ARTICLE_PAIR)
+        with self.assertRaises(AssertionError) as caught:
+            self.assertEqual(_render_collisions(_name_collisions(case)), {},
+                             "the live assertion, run over a deliberately colliding corpus")
+        # The rejection is only useful if it is diagnosable, so check the offending normalized key
+        # and one of the two claiming names are in it. (Not the ids: pytest's own diff renderer
+        # abbreviates the long mapping, so their absence here is formatting, not content — the full
+        # id/name/kind rendering is asserted directly in the group test above.)
+        self.assertIn("abyssal maw", str(caught.exception))
+        self.assertIn("The Abyssal Maw", str(caught.exception))
 
 
 class PartitionKeyShapeTests(unittest.TestCase):
