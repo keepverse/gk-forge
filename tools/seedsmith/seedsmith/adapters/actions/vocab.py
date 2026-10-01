@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ...workspace_roots import owning_base  # noqa: E402
+from ...workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -234,7 +234,7 @@ def load_family_map_keys() -> "frozenset[str]":
     # Keep previously committed family-scoped action rows loadable while the live
     # seed roster evolves its family vocabulary. This compatibility registry is
     # seed data, never a runtime or SQLite projection.
-    registry_path = _owned("data/seed/creatures/_registry/families.v1.json")
+    registry_path = seed_root() / "creatures/_registry/families.v1.json"
     if registry_path.is_file():
         registry = _load_json(registry_path)
         family_ids.update(str(family_id) for family_id in (registry.get("families") or {}).keys())

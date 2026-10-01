@@ -33,7 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ....workspace_roots import owning_base  # noqa: E402
+from ....workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -226,7 +226,7 @@ def build_node_record(node_id: str, node_key: str, branch: str, tier: int, node_
 
 
 def nodes_path(tree_id: str, seed_root: "Path | None" = None) -> Path:
-    root = seed_root or (_owned("data/seed"))
+    root = seed_root or (seed_root())
     return root / "passive-tree" / "nodes" / f"{tree_id}.json"
 
 

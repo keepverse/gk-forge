@@ -50,7 +50,7 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ....workspace_roots import owning_base  # noqa: E402
+from ....workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -58,8 +58,8 @@ def _owned(relative: str) -> "Path":
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
 DEFAULT_ANCHORS_DIR = _owned("data/seed/creatures/species")
-DEFAULT_RUNS_DIR = _owned("data/seed/creatures") / "_runs"
-DEFAULT_FAMILY_ASSIGNMENTS = _owned("data/seed/creatures/_generated/family-assignments.json")
+DEFAULT_RUNS_DIR = seed_root() / "creatures" / "_runs"
+DEFAULT_FAMILY_ASSIGNMENTS = seed_root() / "creatures/_generated/family-assignments.json"
 #: The fusion-recipe-generator's own committed seed (`emit.py`'s `DEFAULT_OUTPUT_RELATIVE`) —
 #: read-only here, never reimplemented or duplicated.
 DEFAULT_FUSION_RECIPES_PATH = _owned("data/generated/creatures/_fusion-recipes.json")

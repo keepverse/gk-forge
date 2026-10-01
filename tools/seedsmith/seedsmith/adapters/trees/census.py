@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ...workspace_roots import owning_base  # noqa: E402
+from ...workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -60,7 +60,7 @@ def _owned(relative: str) -> "Path":
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
 
-DEFAULT_SEED_ROOT = _owned("data/seed")
+DEFAULT_SEED_ROOT = seed_root()
 DEFAULT_OUT_ROOT = _owned("data/generated/passive-tree")
 
 #: Coarse buckets for `tree-binder`'s refusal reasons. A reason that matches none lands in `other`

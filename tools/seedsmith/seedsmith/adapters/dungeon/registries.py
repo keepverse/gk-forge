@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ...workspace_roots import owning_base  # noqa: E402
+from ...workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -249,7 +249,7 @@ def load_zomboss_pattern_ids() -> "frozenset[str]":
 #: species file) — `retinueFamily` references THIS registry's `canonicalKey`, never a species's own
 #: prose field. 19 real families, measured directly, not assumed.
 # Per file for the same reason as `_load_creatures`: the directory name is shared, its contents are not.
-CREATURE_FAMILIES_PATH = _owned("data/seed/creatures/_registry/families.v1.json")
+CREATURE_FAMILIES_PATH = seed_root() / "creatures/_registry/families.v1.json"
 
 #: The real species corpus — `gk-data/packs/fusion/data/seed/creatures/species/**/*.json`, the SAME tree
 #: `check_boss_species.py`-style direct scans already read this session. Not under

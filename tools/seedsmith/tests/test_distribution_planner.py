@@ -55,7 +55,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -258,7 +258,7 @@ class FamilyMotifDerivationTests(unittest.TestCase):
         self.assertEqual(basis, "intersection")
 
     def test_every_family_intersects_nonempty_against_real_data(self) -> None:
-        fam_path = _owned("data/seed/creatures/_generated/family-assignments.json")
+        fam_path = seed_root() / "creatures/_generated/family-assignments.json"
         lean_path = ACTIONS_ROOT / "_generated" / "role-lean.json"
         if not fam_path.is_file() or not lean_path.is_file():
             self.skipTest("A-S0 outputs not yet generated in this checkout")
@@ -282,7 +282,7 @@ class FamilyMotifDerivationTests(unittest.TestCase):
         """The histogram is a READING of the current family map (it moves as species ship), so the
         contract is reconciliation: bin counts sum to the distinct-family count, and the membership
         total is the per-species sum — never a pinned `{7:1, ...}` snapshot (validation-ssot.md)."""
-        fam_path = _owned("data/seed/creatures/_generated/family-assignments.json")
+        fam_path = seed_root() / "creatures/_generated/family-assignments.json"
         if not fam_path.is_file():
             self.skipTest("family-assignments.json not present in this checkout")
         family_assignments = json.loads(fam_path.read_text(encoding="utf-8"))
@@ -1136,7 +1136,7 @@ class DryRunAndOfflineTests(unittest.TestCase):
             with patch.object(gen_mod, "SMOKE_GATE_EVIDENCE_PATH", gate_path):
                 summary = gen_mod.regenerate(
                     actions_root=tmp_path / "actions",
-                    creatures_root=_owned("data/seed/creatures"),
+                    creatures_root=seed_root() / "creatures",
                     full_flag=True, write=False)
             self.assertFalse((tmp_path / "actions" / "_briefs" / "round-1.json").exists())
             self.assertFalse(summary["written"])

@@ -60,7 +60,7 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ...workspace_roots import owning_base  # noqa: E402
+from ...workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -68,7 +68,7 @@ def _owned(relative: str) -> "Path":
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
 ACTIONS_ROOT = _owned("data/seed/actions")
-CREATURES_ROOT = _owned("data/seed/creatures")
+CREATURES_ROOT = seed_root() / "creatures"
 TYPE_WEIGHTS_PATH = ACTIONS_ROOT / "type-weights.json"
 PAIRINGS_PATH = ACTIONS_ROOT / "pairings.json"
 

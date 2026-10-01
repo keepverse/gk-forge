@@ -74,7 +74,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -83,7 +83,7 @@ def _owned(relative: str) -> "Path":
 
 REAL_BRIEFS_PATH = _owned("data/seed/actions/_briefs/round-1.json")
 REAL_FAMILY_ASSIGNMENTS_PATH = (
-    _owned("data/seed/creatures/_generated/family-assignments.json")
+    seed_root() / "creatures/_generated/family-assignments.json"
 )
 RUN_TUNING_PATH = _owned("data/tuning/action-corpus-run.v1.json")
 

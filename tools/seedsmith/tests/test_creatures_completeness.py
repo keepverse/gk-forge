@@ -34,14 +34,14 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
     """The repository carrying `relative`, joined to it; this one when none carries it."""
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
-LIVE_CREATURES_ROOT = _owned("data/seed/creatures")
+LIVE_CREATURES_ROOT = seed_root() / "creatures"
 
 
 @unittest.skipUnless(LIVE_CREATURES_ROOT.is_dir(), "live creatures corpus not present in this checkout")

@@ -56,14 +56,14 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
     """The repository carrying `relative`, joined to it; this one when none carries it."""
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
 
-CREATURES_ROOT = _owned("data/seed/creatures")
+CREATURES_ROOT = seed_root() / "creatures"
 ACTIONS_ROOT = _owned("data/seed/actions")
 TUNING_PATH = _owned("data/tuning/action-role-lean.v1.json")
 
