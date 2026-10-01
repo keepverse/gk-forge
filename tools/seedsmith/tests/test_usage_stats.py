@@ -29,6 +29,7 @@ from seedsmith.adapters.actions.usage_stats.derive import (  # noqa: E402
 from seedsmith.adapters.actions.generate_usage_stats import (  # noqa: E402
     REPO_ROOT, load_policy, verdict,
 )
+from seedsmith.workspace_roots import owned_path
 
 POPULATION = frozenset({"atom.a", "atom.b", "atom.c", "atom.d"})
 
@@ -266,7 +267,7 @@ class TestTrackedWorkedExampleFixture:
     `accepted` candidate whose families are real affix families. Asserted as a join/membership, never
     as a population count (validation-ssot.md)."""
 
-    FIXTURE = (REPO_ROOT / "data" / "seed" / "actions" / "_fixtures" / "general" / "round-1.json")
+    FIXTURE = owned_path("data/seed/actions/_fixtures/general/round-1.json", REPO_ROOT)
 
     def test_the_fixture_is_tracked_content_with_the_pinned_accepted_candidate(self):
         doc = json.loads(self.FIXTURE.read_text(encoding="utf-8"))

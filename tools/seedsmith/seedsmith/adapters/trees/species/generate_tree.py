@@ -35,13 +35,18 @@ from .generate_codex import resolve_codex_summaries
 from .generate_favour_fit import resolve_favour_fit
 from .plan import FavourCell, mark_species_unique_nodes
 from .roster import SpeciesAnchor
+from ....workspace_roots import owned_path  # noqa: E402
 
 REPO_ROOT = PLAN_REPO_ROOT
 
 
 def species_metadata_path(species_id: str, seed_root: "Path | None" = None) -> Path:
-    root = seed_root or (REPO_ROOT / "data" / "seed")
-    return root / "passive-tree" / "species" / f"{species_id}.json"
+    # `data/seed` is gk-data's pack, not gk-forge's, and the DIRECTORY cannot be resolved - the
+    # resolver answers by existence and gk-forge holds an untracked `data/seed/creatures/`. Resolve
+    # the file, which is a closed value this function already had.
+    if seed_root is not None:
+        return seed_root / "passive-tree" / "species" / f"{species_id}.json"
+    return owned_path(f"data/seed/passive-tree/species/{species_id}.json", REPO_ROOT)
 
 
 def species_metadata_document(species_id: str, resolved_cell: FavourCell,

@@ -25,6 +25,7 @@ from typing import Any, Mapping, Sequence
 from ....pipeline.model import BLOCKED_FIELD
 from ...creatures.anchor.permute import order_for
 from ..vocab import REPO_ROOT
+from ....workspace_roots import owned_path
 
 __all__ = [
     "SYSTEM_PROMPT", "GENERAL_ACTION_SCHEMA", "schema_for_call",
@@ -433,9 +434,9 @@ def build_brief(context: Mapping[str, Any]) -> str:
 #           pinned answer ever changes.
 # ---------------------------------------------------------------------------------------------
 
-_WORKED_EXAMPLE_BRIEFS_PATH = REPO_ROOT / "data" / "seed" / "actions" / "_briefs" / "round-1.json"
+_WORKED_EXAMPLE_BRIEFS_PATH = owned_path("data/seed/actions/_briefs/round-1.json", REPO_ROOT)
 _WORKED_EXAMPLE_CANDIDATES_PATH = (
-    REPO_ROOT / "data" / "seed" / "actions" / "_fixtures" / "general" / "round-1.json"
+    owned_path("data/seed/actions/_fixtures/general/round-1.json", REPO_ROOT)
 )
 _WORKED_EXAMPLE_BRIEF_ID = "brief.general.general.004"
 _WORKED_EXAMPLE_CANDIDATE_ID = "candidate.general.003"

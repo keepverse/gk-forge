@@ -24,18 +24,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
-# `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
-# rewrite is wrong: `data`, `data/seed` and `data/seed/creatures` all resolve back to gk-forge,
-# because nearest-match-wins and gk-forge owns its own generator inputs. `or REPO_ROOT` is
-# load-bearing - `owning_base` returns None for a path no repository carries, where
-# `content_root()` would RAISE.
+# `data/seed/**` is gk-data's content pack, not gk-forge's, and the DIRECTORY cannot be resolved.
+# `owning_base` answers by testing `(base / rel).exists()`, so a directory answers unreliably: gk-forge
+# tracks ZERO files under data/ but holds an untracked `data/seed/creatures/` of three files, and that
+# alone is enough for it to claim `data/seed`. So every site below resolves the FILE it wants through
+# `owned_path` - a closed value it already had - and no directory is left to misattribute. Measured:
+#
+#     owning_base("data/seed")                                  -> gk-forge   wrong
+#     owning_base("data/seed/passive-tree/plan/might.v1.json")    -> gk-data     right
+#
+# An explicit `seed_root` still short-circuits: a caller that supplies one is stating where the data
+# is - a fixture, a disposable pack - and must not be overridden.
 
-from ....workspace_roots import owning_base  # noqa: E402
-
-
-def _owned(relative: str) -> "Path":
-    """The repository carrying `relative`, joined to it; this one when none carries it."""
-    return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
+from ....workspace_roots import owned_path  # noqa: E402
 
 
 LEGAL_GATE_STATES = ("carrier", "pending")
@@ -54,8 +55,9 @@ class GateEvidenceRow:
 
 
 def evidence_path(seed_root: "Path | None" = None) -> Path:
-    root = seed_root or (_owned("data/seed"))
-    return root / "passive-tree" / "gate-evidence.v1.json"
+    if seed_root is not None:
+        return seed_root / "passive-tree" / "gate-evidence.v1.json"
+    return owned_path("data/seed/passive-tree/gate-evidence.v1.json", REPO_ROOT)
 
 
 def load_gate_evidence(seed_root: "Path | None" = None) -> "dict[str, GateEvidenceRow]":

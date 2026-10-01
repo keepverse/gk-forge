@@ -17,6 +17,7 @@ from seedsmith.adapters.trees.plan.ids import (  # noqa: E402
     refuse_if_key_reused,
     tree_slug_for,
 )
+from seedsmith.workspace_roots import owned_path
 
 
 class TreeSlugForTests(unittest.TestCase):
@@ -45,7 +46,7 @@ class TreeSlugForTests(unittest.TestCase):
         from pathlib import Path as _Path
 
         repo_root = _Path(__file__).resolve().parents[3]
-        index_path = repo_root / "data" / "seed" / "creatures" / "species" / "_index.json"
+        index_path = owned_path("data/seed/creatures/species/_index.json", repo_root)
         if not index_path.exists():
             self.skipTest("species _index.json not present in this checkout")
         species_ids = json.loads(index_path.read_text(encoding="utf-8")).keys()

@@ -26,6 +26,7 @@ from seedsmith.adapters.trees.nodegen import tuning as nodegen_tuning
 from seedsmith.adapters.trees.plan import tuning as plan_tuning
 from seedsmith.briefkit.avoid_list import load_avoid_terms, render_avoid_line
 from seedsmith.pipeline.llm_caller import LlmCallerConfig
+from seedsmith.workspace_roots import owned_path
 
 TEST_CONFIG = LlmCallerConfig(max_heal=0, model="test-model")
 
@@ -127,7 +128,7 @@ class RunSpeciesTreeTests(unittest.TestCase):
         repo_root = Path(__file__).resolve()
         while repo_root != repo_root.parent and not (repo_root / "CONTRIBUTING.md").exists():
             repo_root = repo_root.parent
-        evidence_src = repo_root / "data" / "seed" / "passive-tree" / "gate-evidence.v1.json"
+        evidence_src = owned_path("data/seed/passive-tree/gate-evidence.v1.json", repo_root)
         evidence_dst = self.seed_root / "passive-tree" / "gate-evidence.v1.json"
         evidence_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(evidence_src, evidence_dst)
@@ -369,7 +370,7 @@ class SpeciesAvoidListTests(unittest.TestCase):
         repo_root = Path(__file__).resolve()
         while repo_root != repo_root.parent and not (repo_root / "CONTRIBUTING.md").exists():
             repo_root = repo_root.parent
-        evidence_src = repo_root / "data" / "seed" / "passive-tree" / "gate-evidence.v1.json"
+        evidence_src = owned_path("data/seed/passive-tree/gate-evidence.v1.json", repo_root)
         evidence_dst = self.seed_root / "passive-tree" / "gate-evidence.v1.json"
         evidence_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(evidence_src, evidence_dst)

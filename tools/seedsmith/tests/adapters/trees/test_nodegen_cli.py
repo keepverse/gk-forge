@@ -25,6 +25,7 @@ from _nodegen_fixtures import raising_call  # noqa: E402
 
 from seedsmith.adapters.trees.nodegen import run as run_mod  # noqa: E402
 from seedsmith.report.cli import EXIT_CANNOT_RUN, EXIT_CLEAN, EXIT_GAP, EXIT_REFUSED, main  # noqa: E402
+from seedsmith.workspace_roots import owned_path
 
 
 def _run_captured(argv: "list[str]") -> "tuple[int, str]":
@@ -204,7 +205,8 @@ class TreesGenerateDryRunTests(unittest.TestCase):
         # committed path below, so this test can no longer assert it stays ABSENT -- it asserts the
         # test's OWN run never TOUCHES it instead, by snapshotting whatever is there (present or not)
         # before, and comparing byte-for-byte after.
-        real_committed_path = plan_read_mod.REPO_ROOT / "data" / "seed" / "passive-tree" / "nodes" / "might.json"
+        real_committed_path = owned_path("data/seed/passive-tree/nodes/might.json",
+                                                 plan_read_mod.REPO_ROOT)
         real_before = real_committed_path.read_bytes() if real_committed_path.exists() else None
 
         with tempfile.TemporaryDirectory() as tmp:

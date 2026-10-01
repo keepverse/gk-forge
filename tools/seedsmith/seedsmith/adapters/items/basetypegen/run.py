@@ -32,6 +32,7 @@ from . import emit as emit_mod
 from . import partitions
 from . import successor_edges, tuning
 from ..registries import load_vocabularies
+from ....workspace_roots import owned_path
 
 
 class PartitionNameNotAllocated(ValueError):
@@ -45,8 +46,7 @@ class PartitionNameNotAllocated(ValueError):
     """
 
 REPO_ROOT = tuning.REPO_ROOT
-DEFAULT_LEDGER_PATH = REPO_ROOT / "data" / "seed" / "items" / "_runs" / \
-    "base-types-gen.ledger.json"
+DEFAULT_LEDGER_PATH = owned_path("data/seed/items/_runs/base-types-gen.ledger.json", REPO_ROOT)
 
 
 def _partition_file(role: str, frame: str, band: str, *,

@@ -27,10 +27,10 @@ from . import schema as schema_mod
 from . import tuning
 from ....pipeline.provenance import provenance_model
 from ....pipeline.run_ledger import RunLedger
+from ....workspace_roots import owned_path
 
 REPO_ROOT = tuning.REPO_ROOT
-DEFAULT_LEDGER_PATH = REPO_ROOT / "data" / "seed" / "items" / "_runs" / \
-    "drop-tables-gen.ledger.json"
+DEFAULT_LEDGER_PATH = owned_path("data/seed/items/_runs/drop-tables-gen.ledger.json", REPO_ROOT)
 
 
 def _partition_file(slot: int, *, drop_tables_dir: "Path | None" = None) -> Path:
