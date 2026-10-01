@@ -27,13 +27,12 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from ...workspace_roots import owning_base  # noqa: E402
+from ...workspace_roots import owning_base, content_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
     """The repository carrying `relative`, joined to it; this one when none carries it."""
     return (owning_base(relative, REPO_ROOT) or REPO_ROOT) / relative
-
 TUNING_PATH = _owned("data/tuning/action-family-usage.v1.json")
 REPORT_DIR = _owned("docs/research/action-corpus")
 
@@ -78,7 +77,12 @@ def run(argv=None) -> int:
     ap.add_argument("--gate", action="store_true", help="exit 1 if the all-time verdict fails")
     args = ap.parse_args(argv)
 
-    report = build_report(REPO_ROOT).to_dict()
+    # `build_report` joins `data/seed/**` onto the root it is handed, and after the split that tree is
+    # gk-data's content pack - gk-forge carries neither it nor data/tuning, so `REPO_ROOT` produced a report
+    # over an empty tree. `content_root()` is asked for HERE rather than at module scope because it RAISES
+    # when the pack is absent, and a module-level call would make this module un-importable in a standalone
+    # clone - which is the same reason the comment above avoids it for the per-file lookups.
+    report = build_report(content_root()).to_dict()
     policy = load_policy()
     v = verdict(report, policy)
     report["verdict"] = v

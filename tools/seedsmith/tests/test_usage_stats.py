@@ -29,7 +29,13 @@ from seedsmith.adapters.actions.usage_stats.derive import (  # noqa: E402
 from seedsmith.adapters.actions.generate_usage_stats import (  # noqa: E402
     REPO_ROOT, load_policy, verdict,
 )
-from seedsmith.workspace_roots import owned_path
+from seedsmith.workspace_roots import content_root, owned_path
+
+#: `build_report` and `load_affix_family_ids` JOIN `data/seed/**` onto the root they are handed, so the root
+#: they want is the content PACK, not `data/seed`. gk-forge carries neither the pack nor data/tuning, so
+#: `REPO_ROOT` had these reading an empty tree. The expected VALUES were always right - the pack really does
+#: hold 125 families - so the argument was wrong, not the expectation.
+CORPUS_ROOT = content_root()
 
 POPULATION = frozenset({"atom.a", "atom.b", "atom.c", "atom.d"})
 
@@ -277,7 +283,7 @@ class TestTrackedWorkedExampleFixture:
 
     def test_every_family_the_fixture_names_is_a_real_affix_family(self):
         doc = json.loads(self.FIXTURE.read_text(encoding="utf-8"))
-        families = load_affix_family_ids(REPO_ROOT)
+        families = load_affix_family_ids(CORPUS_ROOT)
         picked = {f for e in doc["entries"] for f in (e["draft"].get("atomFamilies") or [])}
         assert picked and picked <= families
 
@@ -294,16 +300,16 @@ class TestRealCorpusTests:
         # `acceptedCount > 0` is the liveness half: it held only on a machine that had run the
         # actions pipeline (the round files are gitignored scratch) until the tracked fixture made
         # it hold on a fresh checkout too (SGC5-F1).
-        report = build_report(REPO_ROOT).to_dict()
+        report = build_report(CORPUS_ROOT).to_dict()
         assert report["populationSize"] == 125
         assert report["acceptedCount"] > 0
 
     def test_the_report_is_byte_identical_across_two_runs(self):
-        a = canonical_dump(build_report(REPO_ROOT).to_dict())
-        b = canonical_dump(build_report(REPO_ROOT).to_dict())
+        a = canonical_dump(build_report(CORPUS_ROOT).to_dict())
+        b = canonical_dump(build_report(CORPUS_ROOT).to_dict())
         assert a == b
 
     def test_load_affix_family_ids_finds_all_real_families(self):
-        ids = load_affix_family_ids(REPO_ROOT)
+        ids = load_affix_family_ids(CORPUS_ROOT)
         assert len(ids) == 125
         assert "atom.might" in ids
