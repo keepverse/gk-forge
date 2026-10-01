@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -139,7 +140,7 @@ class ExemplarConformanceTests(unittest.TestCase):
         self.assertEqual(run_all(registry, Ctx(corpus=corpus, adapter=self.adapter)), [])
 
     def test_real_shipped_exemplars_all_currently_conform(self) -> None:
-        live_root = Path(__file__).resolve().parents[3] / "data" / "seed" / "items"
+        live_root = seed_root() / "items"
         if not live_root.is_dir():
             self.skipTest("live item corpus not present in this checkout")
         corpus = Corpus.load(live_root)
@@ -327,7 +328,7 @@ class ProseDedupTests(unittest.TestCase):
         self.assertEqual([f for f in findings if f.evidence["code"] == "ProseNearDuplicate"], [])
 
     def test_real_commander_effect_corpus_reports_exactly_the_known_pair(self) -> None:
-        live_root = Path(__file__).resolve().parents[3] / "data" / "seed" / "creatures"
+        live_root = seed_root() / "creatures"
         if not live_root.is_dir():
             self.skipTest("live creatures corpus not present in this checkout")
         corpus = Corpus.load(live_root)

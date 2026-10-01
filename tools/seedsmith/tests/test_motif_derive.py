@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 
 from seedsmith.adapters.creatures.motifs import (
     CreatureMotifInput,
@@ -274,7 +275,7 @@ def _creature_artifacts():
     import json
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[3] / "data" / "seed" / "creatures"
+    root = seed_root() / "creatures"
     return (
         json.loads((root / "_generated" / "motif-assignments.json").read_text(encoding="utf-8")),
         json.loads((root / "_registry" / "motifs.v1.json").read_text(encoding="utf-8"))["motifs"],

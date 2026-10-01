@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 from seedsmith.adapters.creatures.themes import (
@@ -13,7 +14,7 @@ from seedsmith.adapters.creatures.themes import (
 from seedsmith.adapters.items.registries import load_theme_keys, load_vocabularies
 from seedsmith.corpus.model import Corpus
 
-LIVE_ITEMS_ROOT = Path(__file__).resolve().parents[3] / "data" / "seed" / "items"
+LIVE_ITEMS_ROOT = seed_root() / "items"
 
 
 def T(species_id: str, basis: str = "text", rarity: str = "common", retired: bool = False) -> CreatureThemeInput:

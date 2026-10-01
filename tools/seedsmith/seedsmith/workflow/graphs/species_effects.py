@@ -5,6 +5,7 @@ matching `commander_effect.py`'s own code style, per this module's own spec.
 from __future__ import annotations
 
 import json
+from ...workspace_roots import core_root  # noqa: E402
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,7 +22,7 @@ from .container_authoring import ContainerAuthoringSpec, build_container_authori
 
 __all__ = ["load_shape_tuning", "spec_for_species", "state_for_species", "build_species_effects_graph"]
 
-TUNING_DIR = Path(__file__).resolve().parents[5] / "data" / "tuning"
+TUNING_DIR = core_root() / "data" / "tuning"
 
 
 def load_shape_tuning(version: "int | str" = 1) -> dict:

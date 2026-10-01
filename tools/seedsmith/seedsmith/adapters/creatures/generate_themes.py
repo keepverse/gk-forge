@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from ...workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 from .motifs import own_motifs, prose_of
@@ -44,7 +45,7 @@ FORWARD_MAP = {
 #: unreadable `.tmp-*` directory, so the restatement sat here from 2026-09-10 until 2026-09-17.
 CURRENT_RUNGS = RARITY_LADDER
 
-CREATURES_ROOT = Path(__file__).resolve().parents[5] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 
 
 def build_inputs(root: Path = CREATURES_ROOT) -> "list[CreatureThemeInput]":

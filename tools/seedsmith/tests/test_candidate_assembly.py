@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # load-bearing - `owning_base` returns None for a path no repository carries, where
 # `content_root()` would RAISE.
 
-from seedsmith.workspace_roots import owning_base  # noqa: E402
+from seedsmith.workspace_roots import owning_base, seed_root  # noqa: E402
 
 
 def _owned(relative: str) -> "Path":
@@ -389,7 +389,7 @@ class TestExistingCountsRobustness:
         it. Assert the contract on the live tree: no raise, and every value a positive int."""
         from seedsmith.adapters.actions import generate_candidate_assembly as entrypoint
         from seedsmith.adapters.actions.load import load_committed
-        root = Path(__file__).resolve().parents[3] / "data" / "seed" / "actions"
+        root = seed_root() / "actions"
         counts = entrypoint._existing_counts(root)
         assert isinstance(counts, dict) and counts
         assert all(isinstance(v, int) and v >= 1 for v in counts.values())

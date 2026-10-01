@@ -8,6 +8,7 @@ TUNING_KEY = "creature-threat.v2"
 from __future__ import annotations
 
 import json
+from ....workspace_roots import core_root  # noqa: E402
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .model import PowerSeed
 
-TUNING_DIR = Path(__file__).resolve().parents[6] / "data" / "tuning"
+TUNING_DIR = core_root() / "data" / "tuning"
 
 
 class UnoccupiedRung(ValueError):

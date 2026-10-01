@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from ...workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 from ...corpus.model import Corpus
@@ -39,7 +40,7 @@ from .kinds import CREATURE
 
 __all__ = ["run", "CREATURES_ROOT"]
 
-CREATURES_ROOT = Path(__file__).resolve().parents[5] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 
 #: Artifacts a rewrite would invalidate, and what is bound to them. Named so the refusal can say
 #: exactly what is at stake rather than "unsafe".

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 
 from seedsmith.adapters.creatures.commander_effect import (
     COMMANDER_EFFECT_SCHEMA,
@@ -18,7 +19,7 @@ from seedsmith.briefkit.render import CITATION_PATTERNS
 from seedsmith.pipeline.model import audit_schema
 from seedsmith.pipeline.open_loop import audit_open_loop_schema
 
-CREATURES_ROOT = Path(__file__).resolve().parents[3] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 
 SUBJ = {
     "speciesId": "wallnut",

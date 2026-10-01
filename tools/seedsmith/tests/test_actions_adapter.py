@@ -56,9 +56,24 @@ _VOCAB_MANIFEST = json.loads((_owned("scripts/vocabulary-mirrors.v1.json")).read
 _VOCAB_PAIRS_BY_ID = {p["id"]: p for p in _VOCAB_MANIFEST["pairs"]}
 
 
+def _owner_base(owner: dict) -> Path:
+    """The repository carrying the OWNER's own file, which is the root `resolve_owner_members` must join.
+
+    NOT `REPO_ROOT`. Every `action-*` owner is gk-core's -- a `csharp-enum` under `src/FusionRpg.Core/`
+    or `src/FusionRpg.Contracts/`, and one `json-catalog` under gk-core `data/tuning/` -- and gk-forge
+    carries none of them, so joining against it asks the guard to read a file in a repository that does
+    not have it. Measured, that raised `VocabularyMirrorError: owner file not found:
+    gk-forge/src/FusionRpg.Core/Actions/ActionEnums.cs` in all nine closed-vocabulary tests. Asking
+    which repository owns the FILE is the same question `_owned()` above asks, and it is answerable
+    per file because `owner["file"]` is always a concrete path (a hint naming the highest published
+    `<domain>.v<n>.json` for `json-catalog`) -- never a bare directory.
+    """
+    return owning_base(owner["file"], REPO_ROOT) or REPO_ROOT
+
+
 def _owner_expected(pair_id: str) -> "set[str]":
     pair = _VOCAB_PAIRS_BY_ID[pair_id]
-    owner_members = _gvm.resolve_owner_members(REPO_ROOT, pair["owner"])
+    owner_members = _gvm.resolve_owner_members(_owner_base(pair["owner"]), pair["owner"])
     transform = _gvm.TRANSFORMS[pair["transform"]]
     return {transform(m) for m in owner_members}
 

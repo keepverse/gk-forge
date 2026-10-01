@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 import re
+from ..workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 from .model import OpWeight, TierBands
 
-TUNING_DIR = Path(__file__).resolve().parents[4] / "data" / "seed" / "items" / "_tuning"
+TUNING_DIR = seed_root() / "items" / "_tuning"
 _VERSION_RE = re.compile(r"tier-bands\.v(\d+)\.json$")
 
 

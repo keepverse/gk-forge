@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -96,7 +97,7 @@ class MetricFilterTests(unittest.TestCase):
 
 def test_actions_check_uses_domain_loader_and_excludes_round_scratch(capsys):
     """The actions loader excludes `_rounds/`, whose ids intentionally overlap committed seeds."""
-    live_actions = Path(__file__).resolve().parents[3] / "data" / "seed" / "actions"
+    live_actions = seed_root() / "actions"
     assert main(["check", "--adapter", "actions", "--metric", "Actions/Loader",
                  str(live_actions)]) == EXIT_CLEAN
     assert "could not load corpus" not in capsys.readouterr().err

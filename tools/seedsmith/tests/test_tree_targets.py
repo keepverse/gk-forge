@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import dataclasses
+from seedsmith.workspace_roots import core_root  # noqa: E402
 
 from seedsmith.adapters.trees.targets import (  # noqa: E402
     PassiveTreeTargetsError,
@@ -194,7 +195,7 @@ class QuotaShapeTests(unittest.TestCase):
         # so the shipped file must carry a scheme marker for them, never a hardcoded member array —
         # a thirteenth aptitude (or an 8th status, etc.) must change the grid by construction alone
         # (spec-tree-language.md §4.3's own worked example names aptitude explicitly).
-        live_root = Path(__file__).resolve().parents[3] / "data" / "tuning"
+        live_root = core_root() / "data" / "tuning"
         raw = (live_root / "passive-tree-targets.v2.json").read_text(encoding="utf-8")
         doc = json.loads(raw)
         for axis in ("aptitude", "trigger", "element", "status", "channelFamily"):

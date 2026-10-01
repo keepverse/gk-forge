@@ -14,11 +14,12 @@ metrics read from.
 from __future__ import annotations
 
 import json
+from ..workspace_roots import core_root  # noqa: E402
 from pathlib import Path
 
 from .model import Ctx, Finding, Loop, Metric, Severity
 
-TUNING_DIR = Path(__file__).resolve().parents[4] / "data" / "tuning"
+TUNING_DIR = core_root() / "data" / "tuning"
 
 
 def _load_targets(version: "int | str" = 1) -> dict:

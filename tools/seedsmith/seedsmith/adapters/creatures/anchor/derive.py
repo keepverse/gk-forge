@@ -11,8 +11,9 @@ from pathlib import Path
 
 from .schema import APTITUDE_POSTURE, RARITY, THREAT_BAND
 from ..power.bands import classify
+from ....workspace_roots import core_root  # noqa: E402
 
-VARIANT_COUNT_TUNING_DIR = Path(__file__).resolve().parents[6] / "data" / "tuning"
+VARIANT_COUNT_TUNING_DIR = core_root() / "data" / "tuning"
 
 
 def derive_posture(aptitude_primary: str) -> str:

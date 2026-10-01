@@ -11,13 +11,14 @@ No model call. Everything here is a pure function of committed inputs:
 from __future__ import annotations
 
 import json
+from ...workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 
 from .motifs import CreatureMotifInput, FamilyMembership, derive_motifs, prose_of
 
 __all__ = ["regenerate", "build_inputs", "CREATURES_ROOT"]
 
-CREATURES_ROOT = Path(__file__).resolve().parents[5] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 
 
 def _load_entries(root: Path) -> "dict[str, dict]":

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+from ...workspace_roots import seed_root  # noqa: E402
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -20,7 +21,7 @@ from ...pipeline.model import audit_schema
 from ...pipeline.run import validate_against_schema
 from ...pipeline.run_ledger import RunLedger
 
-CREATURES_ROOT = Path(__file__).resolve().parents[5] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 #: species-gear-chain T16: reads v2 (rarity corrected, keys unchanged).
 CREATURE_THEME_REGISTRY = CREATURES_ROOT / "_registry" / "themes.v2.json"
 DEFAULT_LEDGER = CREATURES_ROOT / "_generated" / "theme-enrich.ledger.json"

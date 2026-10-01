@@ -18,6 +18,7 @@ import argparse
 import dataclasses
 import json
 import time
+from ...workspace_roots import seed_root  # noqa: E402
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from .commander_effect import (
     stale_ids,
 )
 
-CREATURES_ROOT = Path(__file__).resolve().parents[5] / "data" / "seed" / "creatures"
+CREATURES_ROOT = seed_root() / "creatures"
 OUTPUT_DIR = CREATURES_ROOT / "commander-effect"
 
 #: Stat vocabulary that must not survive G1. Its presence means G1 did not land.

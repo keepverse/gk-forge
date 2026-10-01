@@ -6,6 +6,7 @@ rejection test while quietly breaking real content — over-refusal is its own d
 from __future__ import annotations
 
 import pytest
+from seedsmith.workspace_roots import seed_root  # noqa: E402
 
 from seedsmith.workflow.validators import (
     TIER,
@@ -208,7 +209,7 @@ def test_every_committed_commander_effect_name_is_distinct():
     from collections import Counter
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[3] / "data" / "seed" / "creatures"
+    root = seed_root() / "creatures"
     entries = json.loads(
         (root / "commander-effect" / "all.json").read_text(encoding="utf-8"))["entries"]
     dupes = {n: c for n, c in Counter(e["name"] for e in entries).items() if c > 1}
