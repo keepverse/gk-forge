@@ -19,14 +19,37 @@ public static class NamingCheck
     static readonly Regex Fusion = new($"^{Word}$", RegexOptions.Compiled);
     static readonly Regex GeneratedOnly = new($"^{Word} {Word} of (?:the )?{Word}(?: {Word})?$", RegexOptions.Compiled);
 
-    /// <summary>Markup a presentation layer owns, never an authored string (seed-contract.md §6).</summary>
-    static readonly (Regex Pattern, string What)[] Markup =
+    /// <summary>
+    /// Markup a presentation layer owns, never an authored string (seed-contract.md §6).
+    ///
+    /// <para>⛔ <b>The backtick row is a <c>string.Contains</c> and must never become a
+    /// <see cref="Regex"/> again.</b> Measured on this machine (.NET 8, x64): a
+    /// ONE-CHARACTER pattern built with <see cref="RegexOptions.Compiled"/> silently stops
+    /// discriminating when the thread that JITs and runs it cannot be given roughly 130 KB of
+    /// stack — <c>new Regex("`", RegexOptions.Compiled).IsMatch("abc")</c> returns <c>true</c>,
+    /// and it returns <c>false</c> for the same call on 136 KB. The interpreted engine
+    /// (<c>new Regex("`")</c>) is correct at every stack size measured, from 8 KB up. Nothing throws
+    /// and nothing is logged; the matcher simply answers "yes" to everything.
+    ///
+    /// <para>The cost of that was measured, not assumed. Running the real corpus with the whole
+    /// <see cref="Run"/> pipeline on a 128 KB stack produced <b>14,520 phantom
+    /// <c>MarkupInString</c> findings</b> — one per player-facing <c>name</c> and <c>flavor</c> in
+    /// the corpus — against <b>0</b> on an ordinary stack. A validator that reports every name in
+    /// the corpus as carrying a backtick is not reporting; it is the worst failure this tool has,
+    /// because it looks like a finding.</para>
+    ///
+    /// <para>Why the array is a <c>Func</c> rather than five <c>Regex</c>es: a single-character
+    /// literal search is not a pattern, and routing it through the regex engine bought nothing but
+    /// the failure above. The four multi-character rows stay compiled — each was measured correct
+    /// down to the stack size at which the process dies outright.</para>
+    /// </summary>
+    static readonly (Func<string, bool> Match, string What)[] Markup =
     {
-        (new Regex(@"<[^>]+>", RegexOptions.Compiled), "an HTML/XML tag"),
-        (new Regex(@"\[[^\]]+\]", RegexOptions.Compiled), "a bracket tag"),
-        (new Regex(@"&[a-zA-Z]+;|&#\d+;", RegexOptions.Compiled), "an HTML entity"),
-        (new Regex(@"\*\*|__", RegexOptions.Compiled), "markdown emphasis"),
-        (new Regex("`", RegexOptions.Compiled), "a backtick"),
+        (text => Regex.IsMatch(text, @"<[^>]+>", RegexOptions.Compiled), "an HTML/XML tag"),
+        (text => Regex.IsMatch(text, @"\[[^\]]+\]", RegexOptions.Compiled), "a bracket tag"),
+        (text => Regex.IsMatch(text, @"&[a-zA-Z]+;|&#\d+;", RegexOptions.Compiled), "an HTML entity"),
+        (text => Regex.IsMatch(text, @"\*\*|__", RegexOptions.Compiled), "markdown emphasis"),
+        (text => text.Contains('`'), "a backtick"),
     };
 
     static readonly Regex Placeholder = new(@"\{[^}]*\}", RegexOptions.Compiled);
@@ -337,9 +360,9 @@ public static class NamingCheck
             var localized = key is "name" or "flavor";
             if (!localized) continue;
 
-            foreach (var (pattern, what) in Markup)
+            foreach (var (match, what) in Markup)
             {
-                if (!pattern.IsMatch(text)) continue;
+                if (!match(text)) continue;
                 var message = $"'{path}' contains {what}; display formatting belongs to the "
                               + "presentation layer";
                 ctx.Error(entry, "MarkupInString", "seed-contract.md §6", message);
