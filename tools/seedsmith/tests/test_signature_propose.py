@@ -21,7 +21,9 @@ never depend on a real round happening to contain a matching case; and A-S2's OW
 (`gk-data/packs/fusion/data/seed/actions/_briefs/round-1.json`) plus a synthetic "accepted P2 round", to prove this
 stage's own absent-vs-empty contract and family-action-ordering guarantee against A-S2's REAL
 behaviour rather than an assumption about its shape (spec's own instruction: "verify this against
-A-S2's own real behavior").
+A-S2's own real behavior"). Where the shipped corpus can no longer supply the case at all, the
+fixture is PLANTED in a temp directory from a real plan entry -- a roster that happens to cover
+every species is a fact about the roster, never a reason for the contract to go unenforced.
 """
 from __future__ import annotations
 
@@ -336,6 +338,11 @@ class SpeciesAnchorRaiseTests(unittest.TestCase):
 # assumption (the task's own instruction) -- A-S1's real shipped plan
 # (`gk-data/packs/fusion/data/seed/actions/_briefs/round-1.json`) run through `brief_assembly.derive.assemble_briefs`
 # (A-S2's real function), never a hand-rolled fixture pretending to be A-S2's output.
+#
+# One case PLANTS its corpus instead of reading the shipped one, and the distinction matters: the
+# shipped roster is the input to the behaviour, never the arbiter of whether the behaviour is
+# tested. A-S1's real plan entry is still the template (so A-S2 receives its real input contract);
+# only the corpus around it is a temp file. See the family-less case below.
 # ---------------------------------------------------------------------------------------------
 
 class RealBriefAssemblyIntegrationTests(unittest.TestCase):
@@ -344,13 +351,30 @@ class RealBriefAssemblyIntegrationTests(unittest.TestCase):
         cls.plan_doc = json.loads(REAL_PLAN_PATH.read_text(encoding="utf-8"))
         cls.species_entries = [e for e in cls.plan_doc["entries"] if e["scope"] == "species"]
 
-    def test_a_s2_own_output_for_a_family_less_species_runs_and_renders_no_family_sentence(self):
-        family_less_entries = [e for e in self.species_entries if e["anchor"].get("family") is None]
-        if not family_less_entries:
-            self.skipTest("the current live seed roster assigns every species to a family")
-        family_less = family_less_entries[0]
-        [real_brief] = ba.assemble_briefs([family_less], accepted_rows=[], family_ids=FAMILY_IDS)
-        self.assertEqual(real_brief["familyActions"], [])          # A-S2's own real empty-list shape
+    def test_a_planted_family_less_species_assembles_to_an_empty_list_and_renders_no_family_sentence(self):
+        # A-S2's OWN output is still the thing under test, so nothing here imitates it: A-S1's real plan
+        # entry is the input contract, the fixture is a copy of that entry with `anchor.family` cleared,
+        # and `ba.assemble_briefs` does every derivation. What gets planted is the CORPUS, not the
+        # derivation.
+        #
+        # It has to be planted. The previous version looked for a family-less species in the shipped
+        # plan and skipped itself when it found none, which it has done for as long as every shipped
+        # species entry carried a family: a roster decision, not a code fact, was deciding whether the
+        # absence-vs-empty contract was enforced at all. The planted entry goes out to a temp plan
+        # file and comes back through the same `json.loads` read `setUpClass` uses, so the only thing
+        # A-S2 sees is a real A-S1 entry with one key cleared.
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = copy.deepcopy(self.species_entries[0])
+            planted["anchor"]["family"] = None
+            plan_path = Path(tmp) / "planted-round-1.json"
+            plan_path.write_text(json.dumps({"entries": [planted]}), encoding="utf-8")
+            planted_entries = [e for e in json.loads(plan_path.read_text(encoding="utf-8"))["entries"]
+                               if e["scope"] == "species"]
+
+        [real_brief] = ba.assemble_briefs(planted_entries, accepted_rows=[], family_ids=FAMILY_IDS)
+        # A-S2's own real empty-list shape: the key PRESENT and empty, never omitted (spec §3.3).
+        self.assertIn("familyActions", real_brief)
+        self.assertEqual(real_brief["familyActions"], [])
         context = build_context(real_brief, sample_index=0)         # must not raise
         self.assertIn("this creature has no family", build_brief(context).lower())
 
