@@ -204,11 +204,28 @@ def test_an_all_unresolved_roster_is_named_not_merely_not_measured():
 
 def test_every_metric_has_a_declared_target_in_tuning():
     # Mechanically: every metric class's own tuning key must exist in the committed file.
+    #
+    # `data/tuning/**` IS gk-core's, and the nine-repository split moved it out from under the
+    # `parents[n]` walk this used to do. `Path(__file__).parents[1] / ".." / ".."` resolved to
+    # gk-forge/tools - a repository that has no `data/tuning` at all - so the test reported the
+    # committed targets file MISSING while it sat present under gk-core. That is the same
+    # docstring-right/code-stale shape `ladders.py` records, and it hid the fact that the module
+    # UNDER TEST (`seedsmith.metrics.creature_roster`) carries its own identical defect in
+    # `TUNING_DIR`, which is why 13 of this file's 14 failures were never this line.
+    #
+    # Resolved through the shared resolver's `core_root()` rather than a hand-counted `..` hop:
+    # `core_root()` answers "which repository is gk-core" instead of guessing that some fixed
+    # number of `..` hops lands there, which is exactly the guess that broke when the split
+    # changed the depth. `core_root()` does not raise for an absent pack (unlike `content_root`),
+    # so the `read_text` below is the fail-closed half: it names the missing file rather than
+    # silently reading somewhere else. The assertion is unchanged - same keys, same subset check.
     import json
-    from pathlib import Path
+
+    from seedsmith.workspace_roots import core_root
+
     targets = json.loads(
-        (Path(__file__).parents[1] / ".." / ".." / "data" / "tuning" / "creature-roster-targets.v1.json")
-        .resolve().read_text(encoding="utf-8"))
+        (core_root() / "data" / "tuning" / "creature-roster-targets.v1.json")
+        .read_text(encoding="utf-8"))
     expected_keys = {"gridFill", "singleElementShare", "aptitudeDistribution", "threatBandOccupancy",
                      "familySizeSpread", "postureBalance", "unresolvedCount"}
     assert expected_keys <= set(targets.keys())
