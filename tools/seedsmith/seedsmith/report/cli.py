@@ -659,6 +659,9 @@ def cmd_items(args: argparse.Namespace) -> int:
         return _cmd_items_repair_names(args)
     if args.items_command == "repair-materials":
         return _cmd_items_repair_materials(args)
+
+    if args.items_command == "repair-name-grammar":
+        return _cmd_items_repair_name_grammar(args)
     if args.items_command == "repair-charms":
         return _cmd_items_repair_charms(args)
     if args.items_command == "combo-budget":
@@ -753,12 +756,20 @@ def cmd_items(args: argparse.Namespace) -> int:
     retry_feedback: set[str] = set()
     if getattr(args, "retry_blocked", False) and ledger:
         ledger, retry_feedback = _retry_blocked_ledger(ledger)
-    # `sets_dir` is deliberately NOT threaded here, though `plan_run` accepts it. Measured: passing
-    # `out_dir` fixes neither test and breaks a documented behaviour. `_set_entry_on_disk` is only one
-    # of the readers of `sets_dir` - it also drives which subject `plan_run` SELECTS (the least
-    # represented charm axis/class), so handing it a temp dir makes the planner see an empty corpus and
-    # advance past the subject `--ignore-ledger` is documented to re-plan. See the ledger resolution
-    # above, which IS the whole of the 2026-09-08 incident this test class records.
+    # `sets_dir` is deliberately NOT threaded here, though `plan_run` accepts it. Measured, and the reason is
+    # NOT subject selection: `_existing_charm_axis_counts` / `_existing_charm_class_counts` take a default
+    # argument and are called with none (run.py:293-294), so `sets_dir` has exactly ONE reader -
+    # `_set_entry_on_disk` at run.py:120/328/338, the CORPUS-PRESENCE check.
+    #
+    # So passing `out_dir` does not mislead the planner about the population; it makes the corpus-presence
+    # check look at the temp dir. Run 1 writes its row there, run 2's ledger skips it AND the corpus check
+    # skips it, so the plan advances to the next theme and a resumed run re-asks. Reproduced exactly:
+    # toGenerate 1 -> 1 -> 1 while requests went 1 -> 5 -> 9.
+    #
+    # That is CORRECT behaviour, not a defect: `--ignore-ledger` is documented as "plan every generatable
+    # subject, even ones a previous run recorded" - it is scoped to LEDGER rows, not to on-disk content.
+    # An earlier version of this comment claimed subject selection and was wrong; do not re-litigate it
+    # without re-measuring. The ledger resolution above IS the whole of the 2026-09-08 incident.
     try:
         plan = run_mod.plan_run(kind=args.kind, population=args.population,
                                 tuning=tuning, vocabulary=vocabulary, ledger=ledger)
@@ -1240,6 +1251,106 @@ def _print_combo_budget_report(dump: dict, items_root: Path) -> int:
           "unpriced; the derived coefficients above are what a materials publish owes "
           "(never a count cap).")
     return EXIT_GAP
+
+
+def _cmd_items_repair_name_grammar(args: argparse.Namespace) -> int:
+    """Plan or apply model-authored repairs for names the C# validator reports as failing the
+    naming grammar, across every item family kind.
+
+    Unlike `repair-names`, which is driven by duplicate-name COLLISIONS, this repair is driven by
+    `ItemSeedValidator --findings-json --codes=...`: the defect is a grammar violation on an
+    ALREADY-UNIQUE name. `NamingCheck` / `NameNormalizer` stay the sole authority on what fails and
+    what a replacement must satisfy - nothing here re-implements `naming.v1.json`'s grammar in
+    Python - so when the tool cannot run this refuses rather than guessing which names look wrong.
+
+    NOTE the reversed argument order against the sibling: this module's `apply` takes ANSWERS FIRST
+    (`apply(answers, repairs, write=True)`) where `name_repair.apply` takes repairs first. That is
+    the shipped signature and it is left alone deliberately, but it is a genuine footgun.
+    """
+    from ..adapters.items import naming_grammar_repair as grammar_mod
+    from ..pipeline.llm_caller import live_answer_caller, resolve_live_transport
+
+    label = getattr(args, "items_command", "") or "repair-name-grammar"
+    root = Path(args.items_dir) if args.items_dir else grammar_mod.ITEM_SEED_ROOT
+    try:
+        repairs = grammar_mod.plan(root)
+    except grammar_mod.RepairRefused as exc:
+        print(f"seedsmith: {label} refused - {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    if args.limit > 0:
+        repairs = repairs[:args.limit]
+    payload = {"write": bool(args.write), "repairs": [
+        {"entryId": repair.entry_id, "kind": repair.kind, "oldName": repair.old_name,
+         "codes": list(repair.codes), "brief": grammar_mod.brief(repair)}
+        for repair in repairs]}
+    if not args.write:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return EXIT_CLEAN
+    if not repairs:
+        # Nothing to rename is a CLEAN result, not a failed run: a corpus with no grammar finding
+        # reaches this far legitimately, and reporting "no usable answers (0 failed)" would blame
+        # the model for a plan that never asked it anything.
+        print(json.dumps({**payload, "changed": [], "failed": []}, ensure_ascii=False, indent=2))
+        return EXIT_CLEAN
+    try:
+        root.resolve().relative_to(grammar_mod.ITEM_SEED_ROOT.resolve())
+    except ValueError:
+        pass
+    else:
+        if not args.allow_production_tree:
+            print(f"seedsmith: {label} refused - production data/seed/items is read-only "
+                  "unless --allow-production-tree is passed", file=sys.stderr)
+            return EXIT_REFUSED
+    failed: "list[dict[str, str]]"
+    if args.answers:
+        document = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+        supplied = document.get("answers", document) if isinstance(document, dict) else None
+        if not isinstance(supplied, dict):
+            print(f"seedsmith: {label} answers must be a JSON object keyed by entry id",
+                  file=sys.stderr)
+            return EXIT_REFUSED
+        # An authored answer is validated exactly as a model's is: `validate_answer` is the single
+        # gate on unchanged / already-shipped / empty, so `--answers` cannot smuggle a bad name past
+        # the rule the live path enforces.
+        answers: "dict[str, str]" = {}
+        failed = []
+        taken: "set[str]" = set()
+        for repair in repairs:
+            raw = supplied.get(repair.entry_id)
+            if raw is None:
+                continue
+            try:
+                name = grammar_mod.validate_answer(
+                    repair, raw if isinstance(raw, dict) else {"name": raw},
+                    items_root=root, extra_taken=taken)
+            except ValueError as exc:
+                failed.append({"entryId": repair.entry_id, "reason": str(exc)})
+                continue
+            answers[repair.entry_id] = name
+            taken.add(name.casefold())
+    else:
+        transport = resolve_live_transport(args.endpoint, args.model)
+        if not transport.endpoint:
+            print(f"seedsmith: {label} --write needs --answers or a live endpoint", file=sys.stderr)
+            return EXIT_REFUSED
+        # `run_batch` already owns the bounded per-row retry loop (5 attempts, each refused candidate
+        # named back to the model), so the resilience `repair-names` hand-rolls is not duplicated.
+        answers, failed = grammar_mod.run_batch(
+            repairs, caller=live_answer_caller(transport), items_root=root)
+    if not answers:
+        print(f"seedsmith: {label} produced no usable answers ({len(failed)} failed)",
+              file=sys.stderr)
+        return EXIT_CANNOT_RUN
+    # Only answered rows are applied; the rest stay for the next run.
+    repairs = tuple(repair for repair in repairs if repair.entry_id in answers)
+    try:
+        changed = grammar_mod.apply(answers, repairs, write=True)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"seedsmith: {label} failed - {exc}", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+    print(json.dumps({**payload, "changed": [str(path) for path in changed],
+                      "failed": failed}, ensure_ascii=False, indent=2))
+    return EXIT_CLEAN
 
 
 def _cmd_items_repair_names(args: argparse.Namespace, *, kind: str = "") -> int:
@@ -4145,6 +4256,11 @@ def build_parser() -> argparse.ArgumentParser:
     inames = items_sub.add_parser(
         "repair-names", help="rename persisted duplicate set/charm names (dry-run by default)")
     _add_repair_names_arguments(inames)
+    igrammar = items_sub.add_parser(
+        "repair-name-grammar",
+        help="rename names ItemSeedValidator reports as failing the naming grammar, across every "
+             "item kind (dry-run by default)")
+    _add_repair_names_arguments(igrammar)
     imaterials = items_sub.add_parser(
         "repair-materials", help="rename persisted duplicate material names (dry-run by default)")
     _add_repair_names_arguments(imaterials)
