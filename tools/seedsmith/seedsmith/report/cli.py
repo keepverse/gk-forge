@@ -254,7 +254,7 @@ def _cmd_check_family(args: argparse.Namespace) -> int:
         tree_targets = load_tree_targets()
     except (PassiveTreeTargetsError, OSError):
         tree_targets = None
-    ledger = nodegen_run.read_ledger(seed_root / "passive-tree" / "_runs" / "tree-language.ledger.json")
+    ledger = nodegen_run.read_ledger(resolved_seed / "passive-tree" / "_runs" / "tree-language.ledger.json")
     tree_plans: list[object] = []
     nodes_by_tree: dict[str, list] = {}
     outcomes_by_tree: dict[str, list] = {}
@@ -266,7 +266,7 @@ def _cmd_check_family(args: argparse.Namespace) -> int:
         tree_plan = nodegen_plan_read.load_from_dict(plan_doc, source_label=f"plan:{tree_id}")
         tree_plans.append(tree_plan)
         run_plan = nodegen_run.plan_run(tree_plan, ledger=ledger)
-        seed_doc = nodegen_emit.read_seed_document(tree_id, seed_root=seed_root)
+        seed_doc = nodegen_emit.read_seed_document(tree_id, seed_root=resolved_seed)
         nodes_by_tree[tree_id] = list(seed_doc["nodes"]) if seed_doc else []
         outcomes = [{"nodeId": subject_id.split(":", 1)[1], "outcome": "accepted"}
                    for subject_id in run_plan.already_done]
@@ -347,7 +347,7 @@ def _cmd_check_family(args: argparse.Namespace) -> int:
         # seed tree via `rglob` (species's `gk-data/packs/fusion/data/seed/passive-tree/species/`,
         # spec-species-tree.md §2.1 rule 2's own requirement, included for free the moment anything
         # is committed under it — no second root needed).
-        tree_seed_roots=(seed_root / "passive-tree",))
+        tree_seed_roots=(resolved_seed / "passive-tree",))
     ctx = Ctx(corpus=Corpus(), adapter=resolve_adapter("stub"), passive_tree_plan=passive_tree_ctx)
     family_ids = [m.id for m in registry.all() if m.family == "PassiveTree"]
     findings = run_all(registry, ctx, metric_ids=family_ids)
