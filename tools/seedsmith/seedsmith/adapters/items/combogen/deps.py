@@ -32,6 +32,7 @@ from pathlib import Path
 
 from . import supply as supply_mod
 from .tuning import REPO_ROOT, ComboTuning
+from ....workspace_roots import seed_root
 from .. import registries
 from ....pipeline.dependency_validator import (
     CATEGORICAL,
@@ -49,7 +50,10 @@ TARGET_GRANTS = "effect-atom/atom-family-library"
 #: here can physically host (`socketMax >= ingredientCount`) — read from the corpus, never from
 #: `base-types-gen`'s tuning, because the question is what the GAME has, not what a generator would
 #: emit. Monkeypatched in tests to a fixture directory so the rule is asserted, not today's corpus.
-BASE_TYPES_DIR = REPO_ROOT / "data" / "seed" / "items" / "base-types"
+# `data/seed` is gk-data's pack, not gk-forge's, so it cannot be joined onto a repository root.
+# `seed_root` is the pack's own `data/seed`; when the pack is absent it returns a path that does
+# not exist, and `base_type_reach` below already treats a missing directory as an empty mapping.
+BASE_TYPES_DIR = seed_root(REPO_ROOT) / "items" / "base-types"
 
 
 def base_type_reach(base_types_dir: "Path | None" = None) -> "dict[str, int]":

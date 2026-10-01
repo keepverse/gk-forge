@@ -28,6 +28,7 @@ from pathlib import Path
 from .. import registries
 from ..naming_grammar import NAMING_GRAMMAR_RULES
 from ..setgen import vocab as setgen_vocab
+from ....workspace_roots import seed_root
 
 #: Bumped 1->2 (item-seed-regen cause 3, 2026-09-20): now states naming.v1.json's naming grammar.
 PROMPT_VERSION = "gem-gen/2"
@@ -62,7 +63,7 @@ def used_families(gems_dir: "Path | None" = None) -> "frozenset[str]":
     `gk-data/packs/fusion/data/seed/items/gems/*.json` on every call — never hardcoded, so a hand edit or a prior run's
     output is picked up on the very next call, matching `registries.py`'s own "read, never
     transcribe" discipline."""
-    directory = gems_dir or (setgen_vocab.REPO_ROOT / "data" / "seed" / "items" / "gems")
+    directory = gems_dir or (seed_root(setgen_vocab.REPO_ROOT) / "items" / "gems")
     claimed: "set[str]" = set()
     if not directory.exists():
         return frozenset()

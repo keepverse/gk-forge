@@ -212,13 +212,17 @@ def _cmd_check_family(args: argparse.Namespace) -> int:
     from ..adapters.trees.plan.archetypes import SHIPPED_ARCHETYPES, TIER_COUNT
     from ..adapters.trees.targets import PassiveTreeTargetsError
     from ..adapters.trees.targets import load as load_tree_targets
+    from ..workspace_roots import seed_root
     from ..metrics.passive_tree import (
         HiddenFileCountMetric, PassiveTreePlanCtx, SpeciesUniquenessMetric,
     )
 
-    seed_root = (Path(args.plan_root) if getattr(args, "plan_root", None)
-                else plan_emit.REPO_ROOT / "data" / "seed")
-    plan_dir = seed_root / "passive-tree" / "plan"
+    # `data/seed` is gk-data's pack, not gk-forge's, so it cannot be joined onto a repository root.
+    # The local is RENAMED because a variable called `seed_root` would shadow the resolver function
+    # of the same name for the rest of this function's scope.
+    resolved_seed = (Path(args.plan_root) if getattr(args, "plan_root", None)
+                     else seed_root(plan_emit.REPO_ROOT))
+    plan_dir = resolved_seed / "passive-tree" / "plan"
     plan_paths = sorted(plan_dir.glob("*.v1.json")) if plan_dir.exists() else []
     if not plan_paths:
         print(f"seedsmith: check --family PassiveTree: no committed plan under {plan_dir} — "
@@ -1076,7 +1080,8 @@ def _cmd_items_combo_budget(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return EXIT_CANNOT_RUN
 
-    root = Path(args.items_dir) if args.items_dir else (tuning_mod.REPO_ROOT / "data" / "seed" / "items")
+    from ..workspace_roots import seed_root
+    root = Path(args.items_dir) if args.items_dir else (seed_root(tuning_mod.REPO_ROOT) / "items")
     try:
         dump = tuning_mod.combo_budget_dump(root)
     except RuntimeError as exc:
@@ -2329,8 +2334,11 @@ def _every_planned_tree_id(seed_root: Path | None = None) -> list[str]:
     `seed_root` is the SAME parameter `plan_read.load`'s own `seed_root` takes (defaults to
     `gk-data/packs/fusion/data/seed`), so a caller passes one root to both this function and `plan_read.load`."""
     from ..adapters.trees.plan import emit as plan_emit
+    from ..workspace_roots import seed_root as resolve_seed_root
 
-    root = seed_root or (plan_emit.REPO_ROOT / "data" / "seed")
+    # `data/seed` is gk-data's pack, not gk-forge's. The import is ALIASED because this function's
+    # own PARAMETER is called `seed_root`, and an unaliased import would be shadowed by it.
+    root = seed_root or resolve_seed_root(plan_emit.REPO_ROOT)
     plan_dir = root / "passive-tree" / "plan"
     if not plan_dir.exists():
         return []
