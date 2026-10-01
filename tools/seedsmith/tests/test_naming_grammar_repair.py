@@ -11,11 +11,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from seedsmith.adapters.items.naming_grammar import NAMING_GRAMMAR_RULES  # noqa: E402
 from seedsmith.adapters.items import naming_grammar_repair as repair_mod  # noqa: E402
+from seedsmith.adapters.items.setgen import name_repair as name_repair_mod  # noqa: E402
+from seedsmith.workspace_roots import RootNotFound  # noqa: E402
 
 _NUMBER_WORDS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
 
@@ -220,6 +223,68 @@ class RunBatchTests(unittest.TestCase):
             self.assertEqual(len(failed), 1)
             self.assertEqual(failed[0]["entryId"], "set.a-001")
             self.assertIn("transport timeout", failed[0]["reason"])
+
+
+class ValidatorProjectResolutionTests(unittest.TestCase):
+    """⛔ `findings()` is this module's only door onto real data, and it opens by locating
+    `ItemSeedValidator`. Measured on the real workspace, that helper returned None and every call
+    refused with `ItemSeedValidator project not found near
+    <gk-data>/packs/fusion/data/seed/items` -- while gk-forge's
+    `tools/ItemSeedValidator/ItemSeedValidator.csproj` was present and resolvable.
+
+    The corpus root and the validator are in SIBLING repositories, so no number of `..` hops from
+    one reaches the other: the walk up from the pack exhausts itself. These tests plant the two
+    roots in unrelated temporary directories, so they fail on the walk-only shape without depending
+    on where this checkout happens to live."""
+
+    def test_resolves_through_the_resolver_when_the_walk_cannot_reach_a_sibling_repository(self):
+        with tempfile.TemporaryDirectory() as forge, tempfile.TemporaryDirectory() as pack:
+            project = Path(forge) / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
+            project.parent.mkdir(parents=True)
+            project.write_text("<Project />", encoding="utf-8")
+            corpus = Path(pack) / "packs" / "fusion" / "data" / "seed" / "items"
+            corpus.mkdir(parents=True)
+            with patch.object(repair_mod, "forge_root", return_value=Path(forge)):
+                found = repair_mod._default_validator_project(corpus)
+            self.assertEqual(found, project)
+
+    def test_the_walk_still_wins_when_an_ancestor_carries_the_project(self):
+        """Nearest-match: a legacy monorepo clone and a planted fixture both resolve by the walk, so
+        the resolver must be consulted only after it, never instead of it."""
+        with tempfile.TemporaryDirectory() as monorepo, tempfile.TemporaryDirectory() as forge:
+            walked = Path(monorepo) / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
+            walked.parent.mkdir(parents=True)
+            walked.write_text("<Project />", encoding="utf-8")
+            other = Path(forge) / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
+            other.parent.mkdir(parents=True)
+            other.write_text("<Project />", encoding="utf-8")
+            corpus = Path(monorepo) / "data" / "seed" / "items"
+            corpus.mkdir(parents=True)
+            with patch.object(repair_mod, "forge_root", return_value=Path(forge)):
+                found = repair_mod._default_validator_project(corpus)
+            self.assertEqual(found, walked)
+
+    def test_absent_gk_forge_preserves_the_none_answer_rather_than_inventing_a_path(self):
+        """`forge_root` RAISES when gk-forge is absent. That is the same absence the walk already
+        reported, so it is caught and None is preserved -- `findings()` then raises its own clear
+        `RepairRefused`. Nothing here may fabricate a path that does not exist."""
+        with tempfile.TemporaryDirectory() as pack:
+            corpus = Path(pack) / "data" / "seed" / "items"
+            corpus.mkdir(parents=True)
+
+            def absent(_start=None):
+                raise RootNotFound("gk-forge is not present")
+
+            with patch.object(repair_mod, "forge_root", absent):
+                self.assertIsNone(repair_mod._default_validator_project(corpus))
+
+    def test_the_resolver_and_the_sibling_agree_on_where_the_validator_is(self):
+        """This helper is a COPY of `name_repair`'s. The copy is how it silently lost the
+        `forge_root` fallback and left one module refusing while its twin worked, so the invariant
+        that matters is that the two cannot drift into disagreeing about the validator's location."""
+        root = Path(repair_mod.ITEM_SEED_ROOT)
+        self.assertEqual(repair_mod._default_validator_project(root),
+                         name_repair_mod._default_validator_project(root))
 
 
 if __name__ == "__main__":

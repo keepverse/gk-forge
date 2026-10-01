@@ -28,6 +28,7 @@ from typing import Any
 from .naming_grammar import NAMING_GRAMMAR_RULES
 from .setgen.seedfile import ITEM_SEED_ROOT
 from ...tooling import run_tool
+from ...workspace_roots import forge_root, RootNotFound
 
 #: Every NamingCheck.cs code this repair can fix — a `name` field problem, never an id/reference/
 #: structural one. Passed to `--findings-json --codes=` so the C# side does the filtering.
@@ -87,11 +88,34 @@ def findings(items_root: Path | None = None, *, validator_project: Path | None =
 
 
 def _default_validator_project(root: Path) -> Path | None:
+    """The validator project: walk up from `root`, then ASK the resolver.
+
+    ⛔ Fixed 2026-10-01. This was a stale pre-split copy of `name_repair`'s identical helper and
+    carried only the walk, so `findings()` -- this module's ONLY door onto real data -- refused with
+    `ItemSeedValidator project not found near <gk-data>/packs/fusion/data/seed/items` while
+    `gk-forge/tools/ItemSeedValidator/ItemSeedValidator.csproj` sat present and resolvable.
+
+    The walk alone is a pre-split shape: `ItemSeedValidator` lives in gk-forge, the corpus root is
+    gk-data's (inside the content pack), and those repositories are SIBLINGS -- no number of `..`
+    hops from one arrives at the other. Measured: the walk exhausted every ancestor of the pack and
+    returned None, so the caller raised a refusal naming a directory the project was never under.
+
+    The walk stays (it is what a legacy monorepo clone and a planted fixture both need, and it is the
+    nearest-match rule) and `forge_root()` is consulted after it. `forge_root` RAISES when gk-forge
+    is absent -- the same absence the walk already reported -- so it is caught and the None answer is
+    preserved: `findings()` raises its own clear `RepairRefused` on None, and nothing here invents a
+    path that does not exist. Kept deliberately identical to `name_repair._default_validator_project`
+    so the two cannot drift into disagreeing about where the validator is.
+    """
     for parent in [root, *root.parents]:
         candidate = parent / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
         if candidate.exists():
             return candidate
-    return None
+    try:
+        sibling = forge_root() / "tools" / "ItemSeedValidator" / "ItemSeedValidator.csproj"
+    except RootNotFound:
+        return None
+    return sibling if sibling.exists() else None
 
 
 def plan(items_root: Path | None = None, *,
