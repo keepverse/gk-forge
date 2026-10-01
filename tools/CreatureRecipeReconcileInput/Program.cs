@@ -5,6 +5,7 @@ using FusionRpg.Core.Creatures.Fusion;
 using FusionRpg.Core.Creatures.Generation;
 using FusionRpg.Core.Power;
 using FusionRpg.Core.Stats.Aptitudes;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Data;
 
 // `fusion-recipe-generator` (creature-seed module 17, spec-fusion-recipe-generator.md §3 step 1) — the
@@ -39,15 +40,21 @@ string? TakeOption(string flag)
     return value;
 }
 
-var seedRoot = seedOverride ?? FindUp("data", "seed", "creatures", "species");
+// Resolved through the production KeepverseRoots rather than a walk up from the working
+// directory. FindUp("data","tuning") could only ever work in the pre-split monorepo: after
+// the split `data/seed` is gk-data's pack and `data/tuning` is gk-core's, and NO split
+// repository has both - so walking up from gk-forge could find neither. That made this
+// tool exit 2 in every split checkout, which is what kept the C#-seam case in
+// tests/test_fusion_recipe.py skipped: an "environmental" skip for a real defect.
+var seedRoot = seedOverride ?? Path.Combine(KeepverseRoots.Content(), "data", "seed", "creatures", "species");
 if (seedRoot is null || !Directory.Exists(seedRoot))
 {
     Console.Error.WriteLine("could not locate data/seed/creatures/species; pass --seed <dir>");
     return 2;
 }
 
-var tuningDir = FindUp("data", "tuning");
-if (tuningDir is null)
+var tuningDir = Path.Combine(KeepverseRoots.Core(), "data", "tuning");
+if (!Directory.Exists(tuningDir))
 {
     Console.Error.WriteLine("could not locate data/tuning; needed to load the shipped balance surface");
     return 2;
@@ -100,6 +107,25 @@ var tempDir = Path.Combine(Path.GetTempPath(), "fusionrpg-reconcileinput-" + Gui
 Directory.CreateDirectory(tempDir);
 try
 {
+    // The lead-names registry is a process-wide static hub and this tool is its own process, so
+    // nothing else has configured it. `store.Init()` seeds the player, and that insert reads the
+    // registry through `RpgStore.OnboardingPlayerName()`, so an unconfigured hub throws
+    // "LeadNamesHub.Configure(...) has not run" out of Init - the identical failure the seed
+    // importer hit on a cold data dir and which AGENTS.md records as fixed there by routing both
+    // callers through the ONE `LeadNamesHub.ConfigureFromFile`. This is that same single call, not a
+    // second copy: the registry is the content pack's committed file, and it is required rather
+    // than defaulted, because a guessed lead name is an identity nobody could tell from an
+    // authored one.
+    var leadNamesPath = Path.Combine(KeepverseRoots.Content(), "data", "seed",
+                                     "narrative", "_registry", "names.en.v1.json");
+    if (!File.Exists(leadNamesPath))
+    {
+        Console.Error.WriteLine(
+            $"lead-names registry not found at '{leadNamesPath}'; needed to seed the player name.");
+        return 2;
+    }
+    FusionRpg.Core.Narrative.LeadNamesHub.ConfigureFromFile(leadNamesPath);
+
     var store = new RpgStore(tempDir);
     store.Init();
     var outcome = store.ImportSpecies(species);
@@ -155,17 +181,11 @@ static string[] AcquisitionFlags(CreatureAcquisition acquisition) =>
         .Select(f => f.ToString())
         .ToArray();
 
-static string? FindUp(params string[] segments)
-{
-    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-    while (dir is not null)
-    {
-        var candidate = Path.Combine(new[] { dir.FullName }.Concat(segments).ToArray());
-        if (Directory.Exists(candidate)) return candidate;
-        dir = dir.Parent;
-    }
-    return null;
-}
+// The upward-walk helper this file used to resolve its roots is gone with its last caller. It
+// could not answer in the split workspace, so keeping it would keep a function whose only
+// failure mode is "returns null, and the caller exits 2". KeepverseRoots answers the same
+// question from the workspace, which is where the split put the data.
+
 
 partial class Program
 {
