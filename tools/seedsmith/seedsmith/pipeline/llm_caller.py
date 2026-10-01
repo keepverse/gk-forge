@@ -407,10 +407,18 @@ _JSON_REPAIR_ATTEMPTS = 1
 
 
 def live_answer_caller(config: LlmCallerConfig | None, *,
-                       validator: AnswerValidator | None = None) -> AnswerCallFn:
-    """A `call(brief, schema) -> dict` bound to a real model endpoint through `call_model`.
+                       validator: AnswerValidator | None = None,
+                       mode: "str | None" = None,
+                       charter_path: "str | Path | None" = None,
+                       authorer=None) -> AnswerCallFn:
+    """A `call(brief, schema) -> dict` bound to an authorer through the one seam.
 
-    This is the shape `basetypegen.run.run_draws`, `milestonegen.run.run_draws`,
+    `mode`/`charter_path` select the transport and are how delegated mode becomes reachable at all:
+    they are absent by default, so every existing caller gets API mode without being edited, and
+    passing `mode="delegated"` is a deliberate act. `authorer=` injects a ready-made one (tests use
+    this to drive both modes with no model and no network).
+
+    The shape `basetypegen.run.run_draws`, `milestonegen.run.run_draws`,
     `recipegen.run.run_draws`, and `droptablegen.run.run_draws` all already declare and test against
     (`Callable[[str, dict], dict]`) — each module's own brief embeds its full instructions as a
     single user-role message (there is no separate system prompt to manage, unlike `setgen`'s own
@@ -422,8 +430,13 @@ def live_answer_caller(config: LlmCallerConfig | None, *,
     Schema-constrained decoding is honored (via `call_model`'s own `schema` parameter) whenever the
     caller's own schema dict is non-empty, but it is never the only guard: local type/enum checks
     run after parsing and a caller may supply domain validation. One repair prompt names a parse or
-    validation defect before the error reaches the per-subject batch boundary.
+    validation defect before the error reaches the per-subject batch boundary. In delegated mode that
+    local check matters MORE, not less: there is no server-side grammar sampling to enforce the
+    schema, so `extract_json` plus these checks are the whole of the enforcement.
     """
+    from ..plumbing.authorer import DEFAULT_MODE, resolve_authorer
+    authorer = authorer if authorer is not None else resolve_authorer(
+        mode if mode is not None else DEFAULT_MODE, config=config, charter_path=charter_path)
 
     def _validate_schema(answer: dict, schema: dict) -> list[str]:
         if not schema:
@@ -486,13 +499,21 @@ def live_answer_caller(config: LlmCallerConfig | None, *,
         )
 
     def _call(brief: str, schema: dict) -> dict:
-        raw = call_model("", brief, config=config, schema=schema or None)
+        # Through the ONE seam (`plumbing.authorer`), not straight to `call_model`. The seam picks
+        # WHO answers; everything below it -- `extract_json`, `_parse_and_validate`, the repair loop,
+        # and `ItemSeedValidator` outside -- is unchanged and shared, so an API answer and a
+        # delegated answer are judged by identical code and their outputs are comparable. In API
+        # mode the resolved authorer calls `call_model` with the same arguments as before, so the
+        # default request body is byte-identical.
+        raw = authorer.answer("", brief, schema=schema or None)
         try:
             return _parse_and_validate(raw, schema)
         except ValueError as error:
             repair = _repair_prompt(error, brief)
             for _ in range(_JSON_REPAIR_ATTEMPTS):
-                raw = call_model("", repair, config=config, schema=schema or None)
+                # In delegated mode this continues the SAME sub-agent session rather than starting
+                # a cold one, so a repair prompt has the original exchange in front of it.
+                raw = authorer.answer("", repair, schema=schema or None)
                 try:
                     return _parse_and_validate(raw, schema)
                 except ValueError:
