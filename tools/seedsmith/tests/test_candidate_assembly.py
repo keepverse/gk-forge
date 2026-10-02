@@ -337,11 +337,29 @@ class TestFullChainSynthetic:
 # ---------------------------------------------------------------------------------------------
 # Real content -- the actual proof, not a synthetic stand-in. All four real accepted candidates
 # from this session's own smoke batch, through this module, then A-S3's own parser.
+#
+# WHY THIS CLASS SKIPS INSTEAD OF PLANTING FIXTURES (the one skip in seedsmith's suite, so the
+# justification belongs here and not in a ledger row):
+#
+#   The three inputs are data/seed/actions/_candidates/{general,family}/round-1.json and
+#   data/seed/actions/_briefs/round-1.json. Measured: all three are UNTRACKED in gk-forge and absent
+#   from a clean checkout. They are generation INTERMEDIATES inside the content pack, not emitted
+#   seed and not shipped content, which is precisely why they are correctly untracked.
+#
+#   That makes this an opportunistic proof over the artifacts of the most recent generation run: it
+#   runs in the session that produced them and skips everywhere else. Making it hermetic would be the
+#   WRONG fix and would look like progress while destroying the point of the class -- its own header
+#   says "not a synthetic stand-in", so planting fixtures would leave a permanently green test that
+#   proves nothing about real candidates. The hermetic path to this behaviour already exists and is
+#   covered above by the synthetic classes, which is where a regression in candidate assembly would
+#   actually be caught on every run.
 # ---------------------------------------------------------------------------------------------
 
 @pytest.mark.skipif(not GENERAL_CANDIDATES_PATH.is_file() or not FAMILY_CANDIDATES_PATH.is_file()
                     or not BRIEFS_PATH.is_file(),
-                    reason="real smoke-batch round-1 files not present in this checkout")
+                    reason="real smoke-batch round-1 candidates/briefs are generation intermediates, "
+                           "correctly untracked - they exist only in a session that just generated "
+                           "them, so this opportunistic proof cannot run on a clean checkout")
 class TestRealContent:
     @staticmethod
     def _load(path: Path) -> dict:
