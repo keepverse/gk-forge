@@ -413,13 +413,16 @@ def run_preflight(
     # Reading the manifest through `manifest_data_hash` rather than recomputing keeps ONE source of
     # truth: it is the value every `_provenance.dumpHash` records, and it re-verifies the envelope
     # against the payload bytes on the way, so a preflight cannot bless a stale manifest.
+    # A preflight REPORTS; it does not raise. `check_1_dump_exists` and `check_2_dump_is_current`
+    # exist precisely to report a missing dump or a stale envelope as failed checks, so a
+    # MissingDataHash here is a finding to surface through those checks, not an exception that
+    # replaces them. `None` is safe to carry: `write_preflight_record` writes only on a full pass,
+    # and an absent or split-less manifest cannot produce one, so a None dump_hash can never reach
+    # a written record and can never satisfy - or silently break - run-control's comparison.
     try:
         dump_hash = manifest_data_hash(dump_dir)
-    except MissingDataHash as exc:
-        raise MissingDataHash(
-            f"{exc} A preflight record written from contentHash could never satisfy run-control's "
-            f"dataHash comparison, so it is not written at all."
-        ) from exc
+    except MissingDataHash:
+        dump_hash = None
     return PreflightReport(checks=checks, dump_hash=dump_hash, model_id=model_id)
 
 
