@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -90,24 +91,95 @@ def check_1_dump_exists(dump_dir: Path = DEFAULT_DUMP_DIR) -> CheckResult:
         "ask", f"dotnet run --project tools/CreatureCorpusDump -- <server data dir> {dump_dir}")
 
 
+def _payload_paths(dump_dir: Path) -> "list[Path]":
+    """The four hashed payloads, in the fixed order both implementations concatenate them."""
+    return [
+        dump_dir / "almanac" / "plant.json",
+        dump_dir / "almanac" / "zombie.json",
+        dump_dir / "spawn-baseline.json",
+        dump_dir / "recipes.json",
+    ]
+
+
 def _compute_content_hash(dump_dir: Path) -> "str | None":
     """Mirrors `DumpWriter.ComputeContentHash` byte-for-byte: SHA-256 over the four payload
     files' raw bytes, concatenated in the fixed order plant, zombie, baseline, recipes. Must
     agree with the C# implementation, or a dump this module calls "current" would disagree with
     the tool that produced it — proven by `test_hash_matches_the_real_committed_dump`.
     """
-    paths = [
-        dump_dir / "almanac" / "plant.json",
-        dump_dir / "almanac" / "zombie.json",
-        dump_dir / "spawn-baseline.json",
-        dump_dir / "recipes.json",
-    ]
+    paths = _payload_paths(dump_dir)
     if not all(p.exists() for p in paths):
         return None
     sha = hashlib.sha256()
     for p in paths:
         sha.update(p.read_bytes())
     return sha.hexdigest()
+
+
+#: The stamp keys whose VALUES are capture metadata, not game data. Must equal
+#: `DumpWriter.VolatileStampKeys` — a closed, named list on both sides so a new timestamp-shaped
+#: field cannot be silently swallowed by one implementation and not the other.
+VOLATILE_STAMP_KEYS = ("rebuiltUtc", "capturedUtc")
+
+#: The constant both sides substitute. Must equal `DumpWriter.DataHashStampSentinel`.
+DATA_HASH_STAMP_SENTINEL = "0001-01-01T00:00:00.0000000Z"
+
+_STAMP_RE = re.compile(
+    r'("(?:%s)"\s*:\s*)"[^"]*"' % "|".join(VOLATILE_STAMP_KEYS))
+
+
+def _compute_data_hash(dump_dir: Path) -> "str | None":
+    """Mirrors `DumpWriter.ComputeDataHash`: the same four payloads in the same order, with every
+    volatile stamp VALUE replaced by a fixed sentinel first.
+
+    Why this exists rather than reusing `_compute_content_hash`: the payloads carry 986 stamp fields
+    (677 plant + 227 zombie `rebuiltUtc`, 82 spawn-baseline `capturedUtc`), so the content hash moves
+    every time the dump is re-captured even when no game data changed. A staleness key built on it
+    would report the whole corpus stale on every capture — which is precisely what
+    spec-anchor-emit.md forbids: "an entry is stale when what it was derived from has changed,
+    compared by recorded value, not by timestamp".
+
+    The value is SUBSTITUTED, not the key removed: removal can leave a dangling comma and changes the
+    byte length, which is exactly how two implementations drift apart. Substituting leaves the
+    surrounding JSON byte-identical and is trivially mirrored in C#.
+    """
+    paths = _payload_paths(dump_dir)
+    if not all(p.exists() for p in paths):
+        return None
+    sha = hashlib.sha256()
+    for p in paths:
+        text = p.read_text(encoding="utf-8")
+        sha.update(_STAMP_RE.sub(r'\1"' + DATA_HASH_STAMP_SENTINEL + '"', text).encode("utf-8"))
+    return sha.hexdigest()
+
+
+class MissingDataHash(RuntimeError):
+    """The envelope declares no usable `dataHash`, so there is no clock-free snapshot key.
+
+    Named rather than returned as `None`, because every caller of this key either writes it into a
+    committed file or compares it against one; a `None` there would be written or compared as if it
+    were a value."""
+
+
+def manifest_data_hash(dump_dir: Path) -> str:
+    """The envelope's own `dataHash`, RE-VERIFIED against the payloads before it is returned.
+
+    Recomputing rather than trusting the declared string is the point: this value decides what a
+    corpus-wide pass rewrites, so reading it unchecked would let a stale envelope drive a 549-file
+    write. Refuses by name when the field is missing or disagrees with the bytes on disk."""
+    manifest = _read_manifest(dump_dir)
+    if manifest is None:
+        raise MissingDataHash(f"no _manifest.json under {dump_dir}")
+    declared = manifest.get("dataHash")
+    if not declared:
+        raise MissingDataHash(f"_manifest.json under {dump_dir} declares no dataHash")
+    recomputed = _compute_data_hash(dump_dir)
+    if recomputed is None:
+        raise MissingDataHash(f"one or more payload files are missing under {dump_dir}")
+    if recomputed != declared:
+        raise MissingDataHash(
+            f"_manifest.json declares dataHash {declared} but the payloads hash to {recomputed}")
+    return recomputed
 
 
 def check_2_dump_is_current(dump_dir: Path = DEFAULT_DUMP_DIR) -> CheckResult:

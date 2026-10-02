@@ -225,11 +225,28 @@ def _family_for(
 
 
 def _compute_dump_hash(dump_dir: Path) -> str:
-    """Delegates to `preflight`'s own hash so `run-control`'s dump-pinning is the SAME hash
-    `dump-preflight` recorded — two independently-computed hashes of the same tree would be a
-    second source of truth for "did the dump change."""
-    from ..preflight import _compute_content_hash
-    return _compute_content_hash(dump_dir)
+    """The snapshot key every `_provenance.dumpHash` records, read from the manifest's `dataHash`.
+
+    It is the DATA hash and not `contentHash` because the payloads carry 986 stamp fields (677 plant
+    + 227 zombie `rebuiltUtc`, 82 spawn-baseline `capturedUtc`), so `contentHash` moves every time the
+    dump is re-captured. Keying staleness on it made every derived entry stale on every capture.
+    spec-anchor-emit.md requires the opposite - "an entry is stale when what it was derived from has
+    changed, compared by recorded value, not by timestamp" - and this is what finally satisfies it.
+
+    Delegates to `preflight` so `run-control`'s dump-pinning is the SAME value `dump-preflight`
+    verified: two independently-computed hashes of one tree would be a second source of truth.
+
+    A manifest with no `dataHash` is a NAMED failure, never a quiet fall back to `contentHash`. That
+    fallback would reintroduce exactly the clock-dependence this function exists to remove, and it
+    would do so invisibly, by making entries look current that are not."""
+    from ..preflight import MissingDataHash, manifest_data_hash
+    try:
+        return manifest_data_hash(dump_dir)
+    except MissingDataHash as exc:
+        raise MissingDataHash(
+            f"{exc} Re-capture the dump once so the envelope carries both hashes, then re-run. "
+            "Falling back to contentHash here would make staleness track the capture clock again."
+        ) from exc
 
 
 def _read_preflight(dump_dir: Path) -> "dict | None":

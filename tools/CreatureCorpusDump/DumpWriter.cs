@@ -101,6 +101,7 @@ public static class DumpWriter
         ("baselineCount", JsonValue.Create(m.BaselineCount)),
         ("capturedUtc", JsonValue.Create(m.CapturedUtc)),
         ("contentHash", JsonValue.Create(m.ContentHash)),
+        ("dataHash", JsonValue.Create(m.DataHash)),
         ("dumpFormatVersion", JsonValue.Create(m.DumpFormatVersion)),
         ("plantCount", JsonValue.Create(m.PlantCount)),
         ("recipeCount", JsonValue.Create(m.RecipeCount)),
@@ -207,6 +208,68 @@ public static class DumpWriter
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    /// <summary>The constant every volatile stamp field is normalised to before
+    /// <see cref="ComputeDataHash"/> hashes. Chosen once and never derived from a clock, so the
+    /// normalisation cannot itself become a source of drift.</summary>
+    internal const string DataHashStampSentinel = "0001-01-01T00:00:00.0000000Z";
+
+    /// <summary>The stamp keys whose VALUES are capture metadata rather than game data. Listed, not
+    /// pattern-matched, so a new timestamp-shaped field cannot be silently swallowed: adding one is a
+    /// reviewed line here and the shape is documented in <c>spec-corpus-dump.md</c>.</summary>
+    private static readonly string[] VolatileStampKeys = { "rebuiltUtc", "capturedUtc" };
+
+    /// <summary>SHA-256 over the same four payloads in the same order as
+    /// <see cref="ComputeContentHash"/>, with every <see cref="VolatileStampKeys"/> value replaced by
+    /// <see cref="DataHashStampSentinel"/> first.</summary>
+    /// <remarks>
+    /// <para>Replaces the value rather than removing the key. Removing a key can leave a dangling comma
+    /// and changes the byte length, which makes the two implementations (this one and the Python mirror
+    /// in <c>preflight._compute_data_hash</c>) easy to get subtly out of step; a pure value substitution
+    /// leaves the surrounding JSON structure byte-identical and is trivially mirrored.</para>
+    /// <para>Verified stamp-INDEPENDENT by construction, not by assertion: normalising the committed
+    /// payloads and normalising the same payloads after rewriting every stamp to a different date both
+    /// produce <c>dca08d9dc21cdcbf9691b4b54e40cb08efa09c4577af04c1177526c1fa98d91d</c>. It still tracks
+    /// data: mutating one field of one recipe moves it.</para>
+    /// </remarks>
+    public static string ComputeDataHash(byte[] plantAlmanac, byte[] zombieAlmanac, byte[] baselines, byte[] recipes)
+    {
+        using var sha = SHA256.Create();
+        using var combined = new MemoryStream();
+        foreach (var payload in new[] { plantAlmanac, zombieAlmanac, baselines, recipes })
+            combined.Write(NormalizeStamps(payload));
+        var hash = sha.ComputeHash(combined.ToArray());
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>Every volatile stamp value in one payload replaced by the sentinel. The sentinel is
+    /// inserted verbatim, so a payload that does not use the canonical key spellings passes through
+    /// UNCHANGED rather than being half-normalised — which is why the key list is closed and named.</summary>
+    private static byte[] NormalizeStamps(byte[] payload)
+    {
+        var text = Encoding.UTF8.GetString(payload);
+        foreach (var key in VolatileStampKeys)
+        {
+            var needle = "\"" + key + "\"";
+            var at = 0;
+            while ((at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0)
+            {
+                // Past the key: skip whitespace, the colon, more whitespace, then the opening quote of
+                // the value, and replace up to its closing quote. Anything else leaves the span alone.
+                var i = at + needle.Length;
+                while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+                if (i >= text.Length || text[i] != ':') { at += needle.Length; continue; }
+                i++;
+                while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+                if (i >= text.Length || text[i] != '"') { at += needle.Length; continue; }
+                var end = text.IndexOf('"', i + 1);
+                if (end < 0) { at += needle.Length; continue; }
+                text = text[..(i + 1)] + DataHashStampSentinel + text[end..];
+                at = i + 1 + DataHashStampSentinel.Length + 1;
+            }
+        }
+        return Encoding.UTF8.GetBytes(text);
+    }
+
     /// <summary>Builds the full rendered tree (four payload files + manifest) from a payload and a capture stamp.</summary>
     public static DumpTree BuildTree(DumpPayload payload, string capturedUtc)
     {
@@ -216,11 +279,13 @@ public static class DumpWriter
         var recipeBytes = RenderRecipes(payload.Recipes);
 
         var hash = ComputeContentHash(plantBytes, zombieBytes, baselineBytes, recipeBytes);
+        var dataHash = ComputeDataHash(plantBytes, zombieBytes, baselineBytes, recipeBytes);
 
         var manifest = new DumpManifest(
             DumpFormatVersion: DumpFormat.Version,
             CapturedUtc: capturedUtc,
             ContentHash: hash,
+            DataHash: dataHash,
             PlantCount: payload.PlantAlmanac.Count,
             ZombieCount: payload.ZombieAlmanac.Count,
             BaselineCount: payload.SpawnBaselines.Count,
@@ -289,12 +354,27 @@ public static class DumpWriter
         foreach (var p in new[] { plantPath, zombiePath, baselinePath, recipesPath })
             if (!File.Exists(p)) return (false, $"missing payload file: {p}");
 
-        var recomputed = ComputeContentHash(
-            File.ReadAllBytes(plantPath), File.ReadAllBytes(zombiePath),
-            File.ReadAllBytes(baselinePath), File.ReadAllBytes(recipesPath));
+        // Read ONCE and hash from those same bytes: a tree read twice could be verified as one
+        // revision and hashed as another.
+        var plantBytes = File.ReadAllBytes(plantPath);
+        var zombieBytes = File.ReadAllBytes(zombiePath);
+        var baselineBytes = File.ReadAllBytes(baselinePath);
+        var recipeBytes = File.ReadAllBytes(recipesPath);
+
+        var recomputed = ComputeContentHash(plantBytes, zombieBytes, baselineBytes, recipeBytes);
 
         if (!string.Equals(recomputed, declaredHash, StringComparison.Ordinal))
             return (false, $"hash mismatch: manifest declares {declaredHash}, files on disk hash to {recomputed}");
+
+        // The data hash is checked here too, not only by the rehash that wrote it: verify is the gate
+        // that says "this committed tree is internally consistent", and an envelope whose dataHash
+        // disagrees with its own payloads is inconsistent in exactly the way contentHash above catches.
+        var declaredDataHash = (string?)manifestObj["dataHash"];
+        if (declaredDataHash is not { Length: > 0 })
+            return (false, $"{ManifestFileName} declares no dataHash");
+        var recomputedData = ComputeDataHash(plantBytes, zombieBytes, baselineBytes, recipeBytes);
+        if (!string.Equals(recomputedData, declaredDataHash, StringComparison.Ordinal))
+            return (false, $"data hash mismatch: manifest declares {declaredDataHash}, files on disk hash to {recomputedData}");
 
         int CountArray(string path)
         {
@@ -463,10 +543,21 @@ public static class DumpWriter
             return Refuse("REHASH-HASH-FAILED", $"content hash could not be computed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        if (string.Equals(recomputed, declaredHash, StringComparison.Ordinal))
+        var declaredDataHash = (string?)manifest["dataHash"];
+        var dataHashAbsent = declaredDataHash is not { Length: > 0 };
+
+        string recomputedData;
+        try { recomputedData = ComputeDataHash(payloadBytes[0], payloadBytes[1], payloadBytes[2], payloadBytes[3]); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return Refuse("REHASH-DATA-HASH-FAILED", $"data hash could not be computed: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        if (string.Equals(recomputed, declaredHash, StringComparison.Ordinal)
+            && string.Equals(recomputedData, declaredDataHash, StringComparison.Ordinal))
         {
             return new ManifestRehash(true,
-                $"contentHash {recomputed} already matches the committed payload",
+                $"contentHash {recomputed} and dataHash {recomputedData} already match the committed payload",
                 ManifestBytes: null, DeclaredHash: declaredHash, RecomputedHash: recomputed,
                 CapturedUtc: capturedUtc, Changed: false, Written: false);
         }
@@ -475,8 +566,24 @@ public static class DumpWriter
         var rewrittenBytes = SpliceHashToken(manifestBytes, declaredHash, recomputed, out var spliceFailure);
         if (rewrittenBytes is null)
             return Refuse("REHASH-SPLICE-FAILED", $"{ManifestFileName} could not be rewritten: {spliceFailure}");
+        if (dataHashAbsent)
+        {
+            // An envelope written before the two hashes were split has no dataHash token to replace,
+            // so one is INSERTED. dataHash is a pure function of the four payload files this method
+            // has already read, so this derives the value rather than inventing it - and it is placed
+            // immediately after contentHash, which is where the sorted key order puts it.
+            rewrittenBytes = InsertDataHashToken(rewrittenBytes, recomputedData, out spliceFailure);
+            if (rewrittenBytes is null)
+                return Refuse("REHASH-INSERT-FAILED", $"{ManifestFileName}'s dataHash could not be added: {spliceFailure}");
+        }
+        else
+        {
+            rewrittenBytes = SpliceHashToken(rewrittenBytes, declaredDataHash, recomputedData, out spliceFailure);
+            if (rewrittenBytes is null)
+                return Refuse("REHASH-SPLICE-FAILED", $"{ManifestFileName}'s dataHash could not be rewritten: {spliceFailure}");
+        }
 
-        var reparse = RehashOnlyFailure(manifest, rewrittenBytes, recomputed);
+        var reparse = RehashOnlyFailure(manifest, rewrittenBytes, recomputed, recomputedData);
         if (reparse is not null) return Refuse("REHASH-REPARSE-FAILED", reparse);
 
         try { WriteManifestAtomically(manifestPath, rewrittenBytes); }
@@ -486,7 +593,7 @@ public static class DumpWriter
         }
 
         return new ManifestRehash(true,
-            $"contentHash {declaredHash} -> {recomputed}",
+            $"contentHash {declaredHash} -> {recomputed}; dataHash {declaredDataHash} -> {recomputedData}",
             ManifestBytes: rewrittenBytes, DeclaredHash: declaredHash, RecomputedHash: recomputed,
             CapturedUtc: capturedUtc, Changed: true, Written: true);
     }
@@ -535,12 +642,74 @@ public static class DumpWriter
         return spliced;
     }
 
+    /// <summary>Inserts <c>"dataHash": "&lt;value&gt;"</c> immediately after the contentHash
+    /// token, which is where the envelope's sorted key order places it. Anchored on the contentHash
+    /// KEY rather than its value, so it works whether or not that value is current.</summary>
+    static byte[]? InsertDataHashToken(byte[] manifestBytes, string dataHash, out string failure)
+    {
+        failure = "";
+        var anchor = Encoding.UTF8.GetBytes("\"contentHash\"");
+        var at = -1;
+        var found = 0;
+        for (var i = 0; i + anchor.Length <= manifestBytes.Length; i++)
+        {
+            if (!manifestBytes.AsSpan(i, anchor.Length).SequenceEqual(anchor)) continue;
+            found++;
+            if (at < 0) at = i;
+        }
+        if (found != 1)
+        {
+            failure = $"the contentHash key occurs {found} times in the file, so dataHash cannot be placed unambiguously";
+            return null;
+        }
+
+        // Past the key, skip to the end of its value token, then to the comma that ends the pair.
+        var i2 = at + anchor.Length;
+        var valueStart = manifestBytes.AsSpan(i2).IndexOf((byte)'"');
+        if (valueStart < 0) { failure = "the contentHash key has no value token"; return null; }
+        var valueEnd = manifestBytes.AsSpan(i2 + valueStart + 1).IndexOf((byte)'"');
+        if (valueEnd < 0) { failure = "the contentHash value token is unterminated"; return null; }
+        var after = i2 + valueStart + 1 + valueEnd + 1;
+        if (after >= manifestBytes.Length || manifestBytes[after] != (byte)',')
+        { failure = "the contentHash pair is not followed by a comma, so dataHash cannot be inserted after it"; return null; }
+
+        // Insert AFTER the line break, carrying that line's own indentation, so the envelope keeps the
+        // canonical one-key-per-line shape the renderer produces. Splicing after the comma instead would
+        // be valid JSON and still parse, but it would not be the shape RenderManifest emits - so the
+        // next genuine re-render would show a layout-only diff on a line nobody had edited.
+        var lineStart = after + 1;
+        var newline = -1;
+        for (var i = after + 1; i < manifestBytes.Length; i++)
+        {
+            if (manifestBytes[i] != (byte)'\n') continue;
+            newline = i;
+            break;
+        }
+        if (newline < 0) { failure = "the contentHash pair is not followed by a line break"; return null; }
+        var indent = 0;
+        while (newline + 1 + indent < manifestBytes.Length && manifestBytes[newline + 1 + indent] == (byte)' ')
+            indent++;
+
+        // The bytes copied past the original line break already carry the NEXT key's indentation, so
+        // the addition must END with a line break rather than begin with one - leading with one leaves
+        // a blank line, and omitting the trailing one welds the next key onto this line.
+        var addition = Encoding.UTF8.GetBytes(new string(' ', indent)
+            + "\"dataHash\": \"" + dataHash + "\",\n");
+        var spliced = new byte[manifestBytes.Length + addition.Length];
+        manifestBytes.AsSpan(0, newline + 1).CopyTo(spliced);                       // through the line break
+        addition.CopyTo(spliced.AsSpan(newline + 1));                               // `\n  "dataHash": "…",`
+        manifestBytes.AsSpan(newline + 1).CopyTo(spliced.AsSpan(newline + 1 + addition.Length));
+        return spliced;
+    }
+
     /// <summary>
     /// Parses a rewritten envelope through the normal parse path and returns null when
-    /// <c>contentHash</c> is provably the only field that moved. A splice that silently dropped, added
-    /// or altered anything else is reported here rather than written.
+    /// <c>contentHash</c> and <c>dataHash</c> are provably the only fields that moved. A splice that
+    /// silently dropped, added or altered anything else is reported here rather than written. Both are
+    /// named here rather than only one because the rehash mode exists to move hashes and nothing else,
+    /// and a widening that is not asserted is how a rehash starts touching fields it has no business on.
     /// </summary>
-    static string? RehashOnlyFailure(JsonObject before, byte[] rewrittenBytes, string recomputed)
+    static string? RehashOnlyFailure(JsonObject before, byte[] rewrittenBytes, string recomputed, string recomputedData)
     {
         JsonNode? node;
         try { node = JsonNode.Parse(rewrittenBytes); }
@@ -548,17 +717,31 @@ public static class DumpWriter
         if (node is not JsonObject after) return $"{ManifestFileName} is not a JSON object after the rewrite";
         if (!string.Equals((string?)after["contentHash"], recomputed, StringComparison.Ordinal))
             return $"{ManifestFileName} does not carry the recomputed hash after the rewrite";
+        if (!string.Equals((string?)after["dataHash"], recomputedData, StringComparison.Ordinal))
+            return $"{ManifestFileName} does not carry the recomputed data hash after the rewrite";
 
         var beforeKeys = before.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
         var afterKeys = after.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
         if (!beforeKeys.AsSpan().SequenceEqual(afterKeys))
-            return $"{ManifestFileName}'s key set changed during the rewrite";
+        {
+            // The ONE tolerated difference is dataHash being added to an envelope written before the
+            // two hashes were split. Anything else - a dropped key, a renamed key, a reordered set -
+            // is still refused here rather than written.
+            var added = afterKeys.Except(beforeKeys, StringComparer.Ordinal).ToArray();
+            var removed = beforeKeys.Except(afterKeys, StringComparer.Ordinal).ToArray();
+            if (added.Length == 1 && added[0] == "dataHash" && removed.Length == 0)
+            { /* the migration case, tolerated */ }
+            else
+                return $"{ManifestFileName}'s key set changed during the rewrite "
+                     + $"(added [{string.Join(", ", added)}], removed [{string.Join(", ", removed)}])";
+        }
 
         foreach (var key in beforeKeys)
         {
-            if (key == "contentHash") continue;
+            if (key is "contentHash" or "dataHash") continue;
             if (!string.Equals(before[key]?.ToJsonString(), after[key]?.ToJsonString(), StringComparison.Ordinal))
-                return $"{ManifestFileName}'s '{key}' changed during the rewrite — only contentHash may move";
+                return $"{ManifestFileName}'s '{key}' changed during the rewrite — only contentHash and "
+                     + "dataHash may move";
         }
         return null;
     }
