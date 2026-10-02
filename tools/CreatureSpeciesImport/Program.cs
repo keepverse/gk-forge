@@ -1,6 +1,7 @@
 using FusionRpg.Core.Creatures.Generation;
 using FusionRpg.Core.Power;
 using FusionRpg.Core.Stats.Aptitudes;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Data;
 
 // species-import (T4.6, spec-species-generator.md's downstream consumer, creature-seed module 13).
@@ -9,8 +10,9 @@ using FusionRpg.Data;
 // writes the roster in one transaction via RpgStore.ImportSpecies — never raw SQL.
 //
 // Usage: dotnet run --project gk-forge/tools/CreatureSpeciesImport -- [--seed <dir>] [--db <dir>] [--diff-catalog]
-//        --seed   default: gk-data/packs/fusion/data/seed/creatures/species, found by walking up from the working directory
-//        --out    default: gk-data/packs/fusion/data/generated/creatures — read for the staleness check, not written
+//        --seed   default: the content pack's data/seed/creatures/species (gk-data/packs/fusion/...),
+//                 else found by walking up from the working directory
+//        --out    default: the content pack's data/generated/creatures — read for the staleness check, not written
 //        --db     default: $FUSIONRPG_DATA, else dist/FusionRpg.Server/data beside the repo root
 //        --diff-catalog   after a successful import, print the store-backed roster's field-by-field
 //                         diff against the compiled legacy catalog (SpeciesDiff.Compare/Coverage,
@@ -34,7 +36,33 @@ string? TakeOption(string flag)
     return value;
 }
 
-var seedRoot = seedOverride ?? FindUp("data", "seed", "creatures", "species");
+// WHY THE PACK IS ASKED FIRST, and why this is a fix rather than a preference. The walk-up below
+// looks for `data/seed/creatures/species` under each ancestor of the working directory, which is
+// correct only while every repository is one tree. After the split the species tree is the content
+// pack's, two segments further out: gk-data/packs/fusion/data/seed/creatures/species. Walking up
+// from gk-core therefore passed through `<workspace>/data/...` (absent) and kept going to the drive
+// root, so the documented default was UNREACHABLE and every run without an explicit --seed exited
+// 2 with "could not locate data/seed/creatures/species" — including the two tests that exercise this
+// CLI against the real committed tree. CI never noticed because it only mentions this tool in a
+// comment; it does not run it.
+static string? FromPack(string relative)
+{
+    try
+    {
+        var candidate = Path.Combine(KeepverseRoots.Content(),
+            relative.Replace('/', Path.DirectorySeparatorChar));
+        return Directory.Exists(candidate) ? candidate : null;
+    }
+    catch (DirectoryNotFoundException)
+    {
+        // No pack beside this workspace. NOT a crash: the caller falls back to the walk-up and then
+        // reports the same named refusal it always did, so a standalone clone behaves as before.
+        return null;
+    }
+}
+
+var seedRoot = seedOverride ?? FromPack("data/seed/creatures/species")
+    ?? FindUp("data", "seed", "creatures", "species");
 if (seedRoot is null || !Directory.Exists(seedRoot))
 {
     Console.Error.WriteLine("could not locate data/seed/creatures/species; pass --seed <dir>");
@@ -48,7 +76,12 @@ if (tuningDir is null)
     return 2;
 }
 
-var outRoot = outOverride ?? Path.Combine(Directory.GetParent(tuningDir)!.FullName, "generated", "creatures");
+// The generated creatures tree is the PACK's, while data/tuning is gk-core's - so deriving one from
+// the other was correct in a single tree and wrong after the split. The pack is asked first; the
+// parent-of-tuning fallback stays for a legacy layout.
+var outRoot = outOverride
+    ?? FromPack("data/generated/creatures")
+    ?? Path.Combine(Directory.GetParent(tuningDir)!.FullName, "generated", "creatures");
 
 var dataDir = dbOverride
               ?? Environment.GetEnvironmentVariable("FUSIONRPG_DATA")
