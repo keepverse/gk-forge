@@ -709,6 +709,50 @@ public static class DumpWriter
     /// named here rather than only one because the rehash mode exists to move hashes and nothing else,
     /// and a widening that is not asserted is how a rehash starts touching fields it has no business on.
     /// </summary>
+    /// <summary>
+    /// The single-hash sibling of <see cref="RehashOnlyFailure"/>: re-parses a rewritten envelope and
+    /// returns null when <c>contentHash</c> is provably the ONLY field that moved.
+    /// </summary>
+    /// <remarks>
+    /// <para>Why a sibling rather than a flag on the shared checker. <see cref="RehashOnlyFailure"/>
+    /// asserts two facts - <c>contentHash</c> moved to the recomputed value AND <c>dataHash</c> moved to
+    /// the recomputed data value - because it guards the two-hash manifest. Reusing it for
+    /// <c>type-base-stats.json</c> measured 2026-10-02 as unconditionally refusing: that envelope
+    /// predates the split and has no <c>dataHash</c> field at all (its keys are capturedUtc,
+    /// contentHash, dumpFormatVersion, entries, plantCount, zombieCount), so the second assertion could
+    /// never hold and the mode could never succeed. Adding a "has no dataHash" flag to the shared
+    /// checker would have put an optional field on a checker whose whole value is being exhaustive.</para>
+    /// <para>Fails closed the same way: unparseable, not an object, the recomputed hash not carried, a
+    /// changed key set, or any other field moved.</para>
+    /// </remarks>
+    static string? SingleHashRehashOnlyFailure(JsonObject before, byte[] rewrittenBytes, string recomputed)
+    {
+        JsonNode? node;
+        try { node = JsonNode.Parse(rewrittenBytes); }
+        catch (JsonException ex) { return $"{TypeBaseStatsFileName} did not parse after the rewrite: {ex.Message}"; }
+        if (node is not JsonObject after) return $"{TypeBaseStatsFileName} is not a JSON object after the rewrite";
+        if (!string.Equals((string?)after["contentHash"], recomputed, StringComparison.Ordinal))
+            return $"{TypeBaseStatsFileName} does not carry the recomputed hash after the rewrite";
+
+        var beforeKeys = before.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        var afterKeys = after.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+        if (!beforeKeys.AsSpan().SequenceEqual(afterKeys))
+        {
+            var added = afterKeys.Except(beforeKeys, StringComparer.Ordinal).ToArray();
+            var removed = beforeKeys.Except(afterKeys, StringComparer.Ordinal).ToArray();
+            return $"{TypeBaseStatsFileName}'s key set changed during the rewrite "
+                 + $"(added [{string.Join(", ", added)}], removed [{string.Join(", ", removed)}])";
+        }
+
+        foreach (var key in beforeKeys)
+        {
+            if (key == "contentHash") continue;
+            if (!string.Equals(before[key]?.ToJsonString(), after[key]?.ToJsonString(), StringComparison.Ordinal))
+                return $"{TypeBaseStatsFileName}'s '{key}' changed during the rewrite - only contentHash may move";
+        }
+        return null;
+    }
+
     static string? RehashOnlyFailure(JsonObject before, byte[] rewrittenBytes, string recomputed, string recomputedData)
     {
         JsonNode? node;
@@ -858,6 +902,101 @@ public static class DumpWriter
     public static bool TypeBaseStatsMatchesDisk(string outputRoot, byte[] rendered)
         => FileMatches(Path.Combine(outputRoot, TypeBaseStatsFileName), rendered);
 
+    /// <summary>Recomputes <c>type-base-stats.json</c>'s own <c>contentHash</c> from its own committed
+    /// entries and rewrites that ONE field, nothing else.</summary>
+    /// <remarks>
+    /// <para>Why this mode exists, in the same shape as <see cref="RehashCommittedManifest"/>: this
+    /// envelope is SELF-CONTAINED - its hash covers its own entries - so it carries the same exposure the
+    /// manifest did. A hash computed by one renderer and verified by another goes stale the moment the
+    /// rendering changes, and a finding that cannot be re-stamped is permanent.</para>
+    /// <para>Measured 2026-10-02: the committed file was written 2026-09-30 04:18 and the LF-renderer fix
+    /// landed 2026-10-01 22:05, and <c>--verify</c> has failed on it ever since - declaring 3892a8f3 while
+    /// its own entries hash to ae2b0f0c. The manifest got its rehash mode and recovered; this envelope had
+    /// none, which is the whole reason it was still red beside it.</para>
+    /// <para>Fails closed: unreadable, unparseable, not an object, no contentHash, no entries array, an
+    /// entry missing a required field, a declared token that cannot be located unambiguously, or a
+    /// rewritten file that does not re-parse with only contentHash moved. Nothing is written on any of
+    /// them, and an already-current file is left untouched.</para>
+    /// </remarks>
+    public static ManifestRehash RehashTypeBaseStats(string outputRoot)
+    {
+        var path = Path.Combine(outputRoot, TypeBaseStatsFileName);
+        if (!File.Exists(path)) return Refuse("TBSREHASH-NO-FILE", $"no {TypeBaseStatsFileName} under {outputRoot}");
+
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { return Refuse("TBSREHASH-UNREADABLE", $"{TypeBaseStatsFileName} could not be read: {ex.Message}"); }
+
+        JsonNode? node;
+        try { node = JsonNode.Parse(bytes); }
+        catch (JsonException ex)
+        { return Refuse("TBSREHASH-UNPARSEABLE", $"{TypeBaseStatsFileName} did not parse: {ex.Message}"); }
+        if (node is not JsonObject obj)
+            return Refuse("TBSREHASH-NOT-OBJECT", $"{TypeBaseStatsFileName} is not a JSON object");
+
+        var declared = (string?)obj["contentHash"];
+        if (string.IsNullOrEmpty(declared))
+            return Refuse("TBSREHASH-NO-HASH", $"{TypeBaseStatsFileName} has no contentHash");
+        if (obj["entries"] is not JsonArray entriesArr)
+            return Refuse("TBSREHASH-NO-ENTRIES", $"{TypeBaseStatsFileName} has no 'entries' array");
+
+        var rows = new List<DumpTypeBaseStats>(entriesArr.Count);
+        foreach (var e in entriesArr)
+        {
+            if (e is not JsonObject row)
+                return Refuse("TBSREHASH-ENTRY-NOT-OBJECT", "an entry is not a JSON object");
+            var side = (string?)row["side"];
+            var statsJson = (string?)row["statsJson"];
+            var capturedUtc = (string?)row["capturedUtc"];
+            if (side is null || statsJson is null || capturedUtc is null || row["typeId"] is null)
+                return Refuse("TBSREHASH-ENTRY-SHAPE",
+                    "an entry is missing one of side/typeId/statsJson/capturedUtc");
+            rows.Add(new DumpTypeBaseStats(side, (int)row["typeId"]!, (string?)row["typeName"], statsJson, capturedUtc));
+        }
+
+        // capturedUtc answers "when did the game last write this?", so it must be derived from the
+        // entries and NEVER from wall-clock time. Measured 2026-10-02: the committed envelope declares
+        // 2026-09-17T14:50:55.7807434Z, which is exactly max(entry stamps) over its 5 distinct stamps.
+        // That equality is the invariant, and like the manifest's it is CHECKED rather than assumed -
+        // a mode that re-stamped a hash onto an envelope whose own stamp disagrees with its rows would
+        // bless a file that was already inconsistent.
+        var capturedUtcMax = rows.Max(r => r.CapturedUtc);
+        var declaredCapturedUtc = (string?)obj["capturedUtc"];
+        if (declaredCapturedUtc is null)
+            return Refuse("TBSREHASH-NO-CAPTURE-STAMP", $"{TypeBaseStatsFileName} has no capturedUtc");
+        if (!string.Equals(declaredCapturedUtc, capturedUtcMax, StringComparison.Ordinal))
+            return Refuse("TBSREHASH-CAPTURE-STAMP-MISMATCH",
+                $"{TypeBaseStatsFileName} declares capturedUtc {declaredCapturedUtc}, but its entries' newest is {capturedUtcMax}");
+
+        string recomputed;
+        try { recomputed = ComputeTypeBaseStatsHash(RenderTypeBaseStatsEntries(rows)); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        { return Refuse("TBSREHASH-HASH-FAILED", $"hash could not be computed: {ex.GetType().Name}: {ex.Message}"); }
+
+        if (string.Equals(recomputed, declared, StringComparison.Ordinal))
+            return new ManifestRehash(true, $"contentHash {recomputed} already matches its own entries",
+                ManifestBytes: null, DeclaredHash: declared, RecomputedHash: recomputed,
+                CapturedUtc: capturedUtcMax, Changed: false, Written: false);
+
+        var rewritten = SpliceHashToken(bytes, declared, recomputed, out var spliceFailure);
+        if (rewritten is null)
+            return Refuse("TBSREHASH-SPLICE-FAILED", $"{TypeBaseStatsFileName} could not be rewritten: {spliceFailure}");
+
+        // Only contentHash may move. This envelope has no dataHash - it predates the two-hash split -
+        // so the manifest's checker cannot be reused: it asserts dataHash moved too, and would refuse
+        // forever on a file that legitimately has none. A single-hash sibling is the honest instrument.
+        var reparse = SingleHashRehashOnlyFailure(obj, rewritten, recomputed);
+        if (reparse is not null) return Refuse("TBSREHASH-REPARSE-FAILED", reparse);
+
+        try { WriteManifestAtomically(path, rewritten); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { return Refuse("TBSREHASH-WRITE-FAILED", $"{TypeBaseStatsFileName} could not be written: {ex.Message}"); }
+
+        return new ManifestRehash(true, $"contentHash {declared} -> {recomputed}",
+            ManifestBytes: rewritten, DeclaredHash: declared, RecomputedHash: recomputed,
+            CapturedUtc: capturedUtcMax, Changed: true, Written: true);
+    }
     /// <summary>
     /// DB-free self-consistency for <c>type-base-stats.json</c>, the twin of
     /// <see cref="VerifyCommittedTree"/>: re-render the entries the file itself carries, re-hash
@@ -866,6 +1005,7 @@ public static class DumpWriter
     /// Kept a separate entry point rather than folded into <see cref="VerifyCommittedTree"/> so a
     /// caller holding only the four-file tree (every existing test) is unaffected.
     /// </summary>
+
     public static (bool Ok, string Reason) VerifyCommittedTypeBaseStats(string outputRoot)
     {
         var path = Path.Combine(outputRoot, TypeBaseStatsFileName);

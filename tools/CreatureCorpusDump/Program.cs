@@ -64,6 +64,30 @@ if (args.Length >= 2 && args[0] == "--rehash-manifest")
 // four almanac/baseline/recipe payload files are a 2026-08-23 snapshot, and re-emitting them from
 // today's database would be a large, unrelated diff nobody asked for. Re-capturing the static table
 // is its own act, so it gets its own flag.
+// `--rehash-type-base-stats` rewrites ONLY that file's contentHash, recomputed from its own committed
+// entries. Its sibling `--rehash-manifest` recovered the manifest envelope; this envelope had no such
+// mode, so its stale hash was a finding no one could act on. See RehashTypeBaseStats for the measurement.
+if (args.Length >= 2 && args[0] == "--rehash-type-base-stats")
+{
+    var rehash = DumpWriter.RehashTypeBaseStats(Path.GetFullPath(args[1]));
+    if (!rehash.Ok)
+    {
+        Console.Error.WriteLine($"corpus-dump --rehash-type-base-stats: {args[1]} REFUSED - {rehash.Reason}");
+        return 1;
+    }
+    if (!rehash.Changed)
+    {
+        Console.WriteLine(
+            $"corpus-dump --rehash-type-base-stats: {args[1]} already current - {rehash.Reason} (nothing written).");
+        return 0;
+    }
+    Console.WriteLine(
+        $"corpus-dump --rehash-type-base-stats: rewrote {Path.Combine(Path.GetFullPath(args[1]), DumpWriter.TypeBaseStatsFileName)} - " +
+        $"contentHash {rehash.DeclaredHash} -> {rehash.RecomputedHash}; capturedUtc preserved ({rehash.CapturedUtc}); " +
+        "the entries were read, never written.");
+    return 0;
+}
+
 if (args.Length >= 2 && args[0] == "--base-stats")
 {
     var bsCheckOnly = args.Contains("--check");
