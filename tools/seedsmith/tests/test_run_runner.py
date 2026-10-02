@@ -32,6 +32,31 @@ from test_run_orchestrator import always_valid_call  # noqa: E402
 CALLS_PER_OBSERVED_SPECIES = 18
 
 
+def _content_hash(dump_dir: Path) -> str:
+    """The production hashers, imported rather than restated so the fixture cannot drift from the
+    contract it is planting a value for."""
+    from seedsmith.adapters.creatures.preflight import _compute_content_hash
+    return _compute_content_hash(dump_dir)
+
+
+def _data_hash(dump_dir: Path) -> str:
+    from seedsmith.adapters.creatures.preflight import _compute_data_hash
+    return _compute_data_hash(dump_dir)
+
+
+def _restamp_manifest(dump_dir: Path) -> None:
+    """Rewrite both hashes, exactly as capturing a dump does.
+
+    Used where a test changes the PAYLOADS and then needs the envelope to agree with them again, so
+    the refusal under test is the one about moved inputs rather than the one about a self-inconsistent
+    envelope."""
+    path = dump_dir / "_manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["contentHash"] = _content_hash(dump_dir)
+    manifest["dataHash"] = _data_hash(dump_dir)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
 def make_dump(tmp_path: Path, species: "list[dict]") -> Path:
     """A minimal, real-shaped corpus-dump tree — same row schema `dump_ctx.py`/`preflight.py`
     actually read (side/typeId/typeName/displayName/flavorInfo/hp/attack/statsObserved)."""
@@ -47,8 +72,16 @@ def make_dump(tmp_path: Path, species: "list[dict]") -> Path:
     # silently defeating any test that checks the hash actually changed.
     (dump_dir / "spawn-baseline.json").write_text("[]", encoding="utf-8")
     (dump_dir / "recipes.json").write_text("[]", encoding="utf-8")
+    # `dataHash` is now READ AND RE-VERIFIED by `runner._compute_dump_hash` -> `manifest_data_hash`,
+    # which is the key every `_provenance.dumpHash` records. A planted envelope without a correct one
+    # is refused by name, which is the production contract working: this fixture used to carry only
+    # the two counts because the old code computed the hash from the payload bytes and ignored the
+    # manifest entirely. Computing it here rather than hard-coding a constant is the point - a constant
+    # would satisfy the field and never prove it tracks these rows.
     (dump_dir / "_manifest.json").write_text(
-        json.dumps({"plantCount": len(plants), "zombieCount": len(zombies)}), encoding="utf-8")
+        json.dumps({"plantCount": len(plants), "zombieCount": len(zombies),
+                    "contentHash": _content_hash(dump_dir), "dataHash": _data_hash(dump_dir)}),
+        encoding="utf-8")
     return dump_dir
 
 
@@ -160,6 +193,12 @@ def test_resume_against_changed_dump_refuses(tmp_path):
     (paths.dump_dir / "almanac" / "plant.json").write_text(
         json.dumps([species_row("alpha", "plant", 1), species_row("gamma", "plant", 3)]),
         encoding="utf-8")
+    # Re-stamp the envelope, because capturing a real dump DOES rewrite it - that is what
+    # `CreatureCorpusDump` does. Leaving the manifest pointing at the previous payloads would make
+    # this test pass through a DIFFERENT and also-correct refusal (`MissingDataHash`, "declares X but
+    # the payloads hash to Y"), which would prove the envelope was internally inconsistent rather than
+    # proving what this test is named for: a paused run refusing to resume onto a MOVED dump.
+    _restamp_manifest(paths.dump_dir)
 
     with pytest.raises(runner.RunRefused, match="changed"):
         runner.resume(paths=paths, call=always_valid_call)
