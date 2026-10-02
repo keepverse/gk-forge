@@ -58,6 +58,17 @@ class LlmCallerConfig:
     #: independent safety net at the transport layer — it bounds every call regardless of whether
     #: a caller's own schema happens to cap every field.
     max_tokens: int = 16384
+    #: WHICH AUTHORER answers. `"api"` or `"delegated"` — the closed pair owned by the seam in
+    #: `plumbing/authorer.py`, not by this module. Carried on the CONFIG rather than on each call so
+    #: that every adapter already threading a `LlmCallerConfig` inherits it: 46 of the transport call
+    #: sites pass a config and would otherwise each need their own `--mode` plumbing, which is how a
+    #: second transport grew in the first place.
+    #:
+    #: The literal is spelled here instead of imported from the seam because `authorer` imports this
+    #: module (`ApiAuthorer.answer` calls `call_model`), so importing back at module scope would be a
+    #: cycle. `authorer.DEFAULT_MODE` is asserted equal to this value by a test, so the two cannot
+    #: drift apart silently.
+    mode: str = "api"
 
 
 DEFAULT_CONFIG = LlmCallerConfig()
@@ -74,6 +85,11 @@ _ENV_KEYS: "dict[str, tuple[str, type]]" = {
     "SEEDSMITH_LLM_RETRY_DELAY": ("retry_delay", float),
     "SEEDSMITH_LLM_MAX_HEAL": ("max_heal", int),
     "SEEDSMITH_LLM_MAX_TOKENS": ("max_tokens", int),
+    # The transport's own `.env` key. Setting it to `delegated` IS the explicit owner request — it is
+    # a machine-local, per-operator, gitignored file, so it is the deliberate kind of trigger C6 asks
+    # for and not an implicit one. There is deliberately NO counterpart that guesses: nothing infers
+    # `delegated` from a missing endpoint, an unreachable server, or an empty model id.
+    "SEEDSMITH_LLM_MODE": ("mode", str),
 }
 
 
@@ -152,6 +168,7 @@ def load_config(toml_path: Path | None = None, *, dotenv_path: Path | None = Non
         "retry_delay": section.get("retry_delay", base.retry_delay),
         "max_heal": section.get("max_heal", base.max_heal),
         "max_tokens": section.get("max_tokens", base.max_tokens),
+        "mode": section.get("mode", base.mode),
     }
 
     env_file = resolve_dotenv_path(dotenv_path)
@@ -168,6 +185,7 @@ def resolve_live_transport(
     cli_endpoint: str = "",
     cli_model: str = "",
     *,
+    cli_mode: str = "",
     toml_path: Path | None = None,
     dotenv_path: Path | None = None,
 ) -> LlmCallerConfig:
@@ -188,7 +206,21 @@ def resolve_live_transport(
     model = (cli_model or "").strip()
     if not model or model == "unrecorded":
         model = base.model
-    return dataclasses.replace(base, endpoint=endpoint, model=model)
+    # Same precedence as endpoint/model: a non-empty `--mode` wins, an empty one falls through to
+    # `.env` / toml / the built-in default. Validated here rather than at use so a typo surfaces at
+    # config-resolution time with a named refusal instead of at the first authoring call.
+    mode = (cli_mode or "").strip()
+    if not mode or mode == "unrecorded":
+        mode = base.mode
+    from ..plumbing.authorer import MODES
+    if mode not in MODES:
+        from ..plumbing.authorer import AuthoringRefusal
+        raise AuthoringRefusal(
+            "AUTHORING-UNKNOWN-MODE",
+            f"--mode/cli_mode is {mode!r}, which is not one of {list(MODES)}. Refused rather than "
+            "defaulted: 'delegated' may edit the corpus and must be asked for by name.",
+        )
+    return dataclasses.replace(base, endpoint=endpoint, model=model, mode=mode)
 
 
 class DegenerateGenerationError(RuntimeError):
@@ -335,6 +367,28 @@ def call_model(system: str, user: str, *, config: LlmCallerConfig | None = None,
     """
     if config is None:
         config = load_config()
+    # --- the one dispatch point: WHO answers this prompt -------------------------------
+    # Both modes return a completion STRING, so this is a drop-in for either path: `delegated`
+    # hands the same (system, user, schema) to the seam and returns its text. Everything below
+    # this block is the API implementation and is reached ONLY in api mode.
+    #
+    # There is no `else` branch that could fall into delegated: an unrecognised mode is a NAMED
+    # refusal, never a silent default. That is the whole of ruling C6 — the mode that may edit the
+    # corpus is entered only when something says so in so many words, and a typo must not select
+    # a transport. `ApiAuthorer.answer` calls back into this function, but only for api mode, so
+    # this dispatch cannot recurse.
+    mode = (getattr(config, "mode", "api") or "api").strip()
+    if mode == "delegated":
+        from ..plumbing.authorer import resolve_authorer
+        return resolve_authorer("delegated", config=config).answer(system, user, schema=schema)
+    if mode != "api":
+        from ..plumbing.authorer import AuthoringRefusal
+        raise AuthoringRefusal(
+            "AUTHORING-UNKNOWN-MODE",
+            f"config.mode is {mode!r}, which is neither 'api' nor 'delegated'. Refused rather than "
+            "defaulted: a wrong mode must never quietly select a transport, and 'delegated' is the "
+            "one that may edit the corpus.",
+        )
     payload = {
         "model": config.model, "temperature": temperature,
         "max_tokens": config.max_tokens,
@@ -435,8 +489,13 @@ def live_answer_caller(config: LlmCallerConfig | None, *,
     schema, so `extract_json` plus these checks are the whole of the enforcement.
     """
     from ..plumbing.authorer import DEFAULT_MODE, resolve_authorer
+    # Precedence: an explicit `mode=` argument, then the CONFIG's own mode, then the default. The
+    # middle term is what makes an operator's `.env` / toml / `--mode` reach an adapter that never
+    # heard of the seam — previously this function fell straight to `DEFAULT_MODE` and a delegated
+    # config was silently answered by the API, which is the exact inversion C6 exists to prevent.
+    effective_mode = mode if mode is not None else (getattr(config, "mode", None) or DEFAULT_MODE)
     authorer = authorer if authorer is not None else resolve_authorer(
-        mode if mode is not None else DEFAULT_MODE, config=config, charter_path=charter_path)
+        effective_mode, config=config, charter_path=charter_path)
 
     def _validate_schema(answer: dict, schema: dict) -> list[str]:
         if not schema:

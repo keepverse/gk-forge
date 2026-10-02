@@ -864,7 +864,7 @@ def _cmd_items_write(args: argparse.Namespace, *, plan, tuning, vocabulary) -> i
               file=sys.stderr)
         return EXIT_REFUSED
 
-    transport = resolve_live_transport(args.endpoint, args.model)
+    transport = resolve_live_transport(args.endpoint, args.model, cli_mode=getattr(args, "mode", ""))
     if not args.answers and not transport.endpoint:
         print("seedsmith: --write is refused — no transport. Pass --answers <file>, "
               "--endpoint <url>, or set SEEDSMITH_LLM_ENDPOINT in tools/seedsmith/.env.",
@@ -1329,7 +1329,7 @@ def _cmd_items_repair_name_grammar(args: argparse.Namespace) -> int:
             answers[repair.entry_id] = name
             taken.add(name.casefold())
     else:
-        transport = resolve_live_transport(args.endpoint, args.model)
+        transport = resolve_live_transport(args.endpoint, args.model, cli_mode=getattr(args, "mode", ""))
         if not transport.endpoint:
             print(f"seedsmith: {label} --write needs --answers or a live endpoint", file=sys.stderr)
             return EXIT_REFUSED
@@ -1460,7 +1460,7 @@ def _cmd_items_repair_names(args: argparse.Namespace, *, kind: str = "") -> int:
             return EXIT_REFUSED
         failed: list[dict] = []
     else:
-        transport = resolve_live_transport(args.endpoint, args.model)
+        transport = resolve_live_transport(args.endpoint, args.model, cli_mode=getattr(args, "mode", ""))
         if not transport.endpoint:
             print(f"seedsmith: {label} --write needs --answers or a live endpoint", file=sys.stderr)
             return EXIT_REFUSED
@@ -1999,7 +1999,7 @@ def _cmd_items_combination_write(args: argparse.Namespace, *, plan, tuning) -> i
               "off. Pass --out-dir, or set SEEDSMITH_ALLOW_PRODUCTION_TREE=1 in "
               "tools/seedsmith/.env.", file=sys.stderr)
         return EXIT_REFUSED
-    transport = resolve_live_transport(args.endpoint, args.model)
+    transport = resolve_live_transport(args.endpoint, args.model, cli_mode=getattr(args, "mode", ""))
     if not args.answers and not transport.endpoint:
         print("seedsmith: --write is refused — no transport. Pass --answers <file>, "
               "--endpoint <url>, or set SEEDSMITH_LLM_ENDPOINT in tools/seedsmith/.env.",
@@ -3283,7 +3283,7 @@ def _cmd_creatures_build_favour(args: argparse.Namespace) -> int:
 
     # An empty flag falls through to `.env` / `seedsmith.toml` / the built-in default — the one
     # config layer (spec-model-config-resolve.md §3.3).
-    config = resolve_live_transport(args.endpoint, args.model)
+    config = resolve_live_transport(args.endpoint, args.model, cli_mode=getattr(args, "mode", ""))
     print(_json.dumps(
         build_favour.execute(
             plan, ask=build_favour.graph_ask(config=config), write=True,
@@ -3919,6 +3919,11 @@ def _add_repair_names_arguments(parser: argparse.ArgumentParser) -> None:
                         help="live model endpoint; omitted when --answers supplies replacements")
     parser.add_argument("--model", default="unrecorded",
                         help="live model id; falls through to configured default")
+    parser.add_argument("--mode", default="", choices=("api", "delegated"),
+                        help="which authorer answers: api (default) or delegated. Delegated runs a "
+                             "sub-agent that MAY edit the corpus, so it is never selected implicitly "
+                             "- pass it here, set `mode` in [pipeline.llm_caller], or put "
+                             "SEEDSMITH_LLM_MODE in .env")
     parser.add_argument("--limit", type=int, default=0,
                         help="repair at most N losing rows (0 = every duplicate)")
 
@@ -3979,6 +3984,9 @@ def build_parser() -> argparse.ArgumentParser:
     enrich.add_argument("--write", action="store_true")
     enrich.add_argument("--endpoint", default="")
     enrich.add_argument("--model", default="")
+    enrich.add_argument("--mode", default="", choices=("api", "delegated"),
+                        help="which authorer answers: api (default) or delegated. Delegated runs a "
+                             "sub-agent that MAY edit the corpus, so it is never selected implicitly")
     power_parse = creature_sub.add_parser(
         "power-parse", help="numeric power seed + basis per species (no model calls)")
     power_parse.add_argument("--dump", required=True, help="corpus-dump tree root")
@@ -4009,6 +4017,9 @@ def build_parser() -> argparse.ArgumentParser:
     build_favour.add_argument("--tuning", default="", help="the species-build tuning document")
     build_favour.add_argument("--endpoint", default="")
     build_favour.add_argument("--model", default="")
+    build_favour.add_argument("--mode", default="", choices=("api", "delegated"),
+                              help="which authorer answers: api (default) or delegated. Delegated is "
+                                   "never selected implicitly")
     preflight = creature_sub.add_parser(
         "preflight", help="the nine run-readiness checks — refuses or asks, never guesses")
     preflight.add_argument("--json", action="store_true", help="machine-readable output")
@@ -4038,6 +4049,9 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--workers", type=int, default=0)
     gen.add_argument("--endpoint", default="")
     gen.add_argument("--model", default="")
+    gen.add_argument("--mode", default="", choices=("api", "delegated"),
+                     help="which authorer answers: api (default) or delegated. Delegated runs a "
+                          "sub-agent that MAY edit the corpus, so it is never selected implicitly")
     # --kind anchor (creature-seed module 7, classify-pipelines):
     gen.add_argument("--pipeline", default="", help="one of the 8 classify-pipelines ids (--kind anchor)")
     gen.add_argument("--species", default="", help="a speciesId (--kind anchor)")
@@ -4120,6 +4134,9 @@ def build_parser() -> argparse.ArgumentParser:
     igen.add_argument("--endpoint", default="",
                       help="set/charm/combination --write: live model endpoint. Empty falls "
                            "through to SEEDSMITH_LLM_ENDPOINT in tools/seedsmith/.env")
+    igen.add_argument("--mode", default="", choices=("api", "delegated"),
+                      help="which authorer answers: api (default) or delegated. Delegated runs a "
+                           "sub-agent that MAY edit the corpus, so it is never selected implicitly")
     igen.add_argument("--ledger", default="",
                       help="set/charm/combination --write: resume-ledger path (default: generator-specific "
                            "ledger inside --out-dir, so a sample never touches the real one)")
@@ -4345,6 +4362,9 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--workers", type=int, default=0)
     gen.add_argument("--endpoint", default="")
     gen.add_argument("--model", default="")
+    gen.add_argument("--mode", default="", choices=("api", "delegated"),
+                     help="which authorer answers: api (default) or delegated. Delegated is never "
+                          "selected implicitly")
     gen.add_argument(
         "--species-id", default="",
         help="task J7: author into affix.species.<speciesId>.* / "
