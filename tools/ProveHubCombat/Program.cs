@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Core.Battle;
 using FusionRpg.Core.Creatures;
 using FusionRpg.Core.Effects.Atoms;
@@ -26,7 +27,7 @@ using Microsoft.Extensions.DependencyInjection;
 // deliverable, the same boundary T12 itself named.
 
 string repoRoot = FindRepoRoot();
-string tuningDir = Path.Combine(repoRoot, "data", "tuning");
+string tuningDir = Path.Combine(KeepverseRoots.Core(), "data", "tuning");
 string? outPath = ArgString(args, "--out", null);
 
 string Read(string name) => File.ReadAllText(Path.Combine(tuningDir, name));
@@ -64,7 +65,7 @@ FusionRpg.Core.Combat.Shield.ShieldPolicy.Configure(
 // have, turning a structural report into "could not start". Nothing is weakened by the conditional -- if
 // the reader is reached with the hub unconfigured, `LeadNamesHub.Current` throws its own named refusal,
 // which is the fail-closed behaviour, and it is pinned in Core.
-var leadNamesPath = Path.Combine(repoRoot, "data", "seed", "narrative", "_registry", "names.en.v1.json");
+var leadNamesPath = Path.Combine(KeepverseRoots.Content(), "data", "seed", "narrative", "_registry", "names.en.v1.json");
 if (File.Exists(leadNamesPath))
 {
     FusionRpg.Core.Narrative.LeadNamesHub.ConfigureFromFile(leadNamesPath);
@@ -88,7 +89,7 @@ FusionRpg.Core.Overlay.OverlayTuningHub.Configure(
 StatsTuningHub.Configure(StatsTuningLoader.Parse(Read("stats.v1.json")));
 FusionRpg.Core.Expeditions.ExpeditionTuningHub.Configure(
     FusionRpg.Core.Expeditions.ExpeditionTuningLoader.Parse(Read("expeditions.v2.json")));
-var dungeonRegistryDir = Path.Combine(repoRoot, "data", "seed", "dungeon", "_registry");
+var dungeonRegistryDir = Path.Combine(KeepverseRoots.Content(), "data", "seed", "dungeon", "_registry");
 var dungeonRegistries = FusionRpg.Core.Dungeon.Registry.DungeonRegistryLoader.LoadAll(dungeonRegistryDir);
 FusionRpg.Core.Dungeon.Tuning.DungeonTuningHub.Configure(
     FusionRpg.Core.Dungeon.Tuning.DungeonTuningLoader.Parse(Read("dungeon.v3.json"), dungeonRegistries));
@@ -99,7 +100,7 @@ FusionRpg.Core.Dungeon.Tuning.EncounterTuningHub.Configure(
 FusionRpg.Core.Dungeon.Registry.DungeonRegistryHub.Configure(dungeonRegistries);
 {
     var layoutRows = FusionRpg.Core.Delve.Roll.LayoutSeedFile.LoadAll(
-        Path.Combine(repoRoot, "data", "seed", "dungeon", "layouts"));
+        Path.Combine(KeepverseRoots.Content(), "data", "seed", "dungeon", "layouts"));
     var layoutLoad = FusionRpg.Core.Delve.Roll.LayoutTemplateCatalog.Load(
         layoutRows, FusionRpg.Core.Dungeon.Registry.BandCatalog.All, FusionRpg.Core.Dungeon.Registry.RaidModeCatalog.All);
     if (layoutLoad.Rejections.Count > 0)
@@ -118,7 +119,7 @@ FusionRpg.Core.Creatures.Generation.SpeciesBuildTuningHub.Configure(
     FusionRpg.Core.Creatures.Generation.SpeciesBuildTuningLoader.Parse(Read("species-build.v6.json")));
 FusionRpg.Core.Creatures.Generation.SpeciesBuildPlanCatalog.Configure(
     FusionRpg.Core.Creatures.Generation.SpeciesBuildPlanReader.Parse(
-        File.ReadAllText(Path.Combine(repoRoot, "data", "generated", "creatures", "_species-build-plan.json"))));
+        File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "generated", "creatures", "_species-build-plan.json"))));
 FusionRpg.Core.Battle.Ai.ZombossAdaptiveTuningHub.Configure(
     FusionRpg.Core.Battle.Ai.ZombossAdaptiveTuningLoader.Parse(Read("zomboss-adaptive.v1.json")));
 BattleTuningHub.Configure(BattleTuningLoader.Parse(Read("battle.v5.json")));
@@ -128,7 +129,7 @@ FusionRpg.Core.Battle.Board.SiegeTuningPolicy.Configure(
 FusionRpg.Core.Battle.Board.BattleBoardTuningPolicy.Configure(
     FusionRpg.Core.Battle.Board.BattleBoardTuningLoader.Parse(Read("battle-board.v1.json")));
 FusionRpg.Core.World.StructureCatalog.Configure(
-    FusionRpg.Core.World.StructureSeed.StructureCorpus.Load(Path.Combine(repoRoot, "data", "seed", "structures")));
+    FusionRpg.Core.World.StructureSeed.StructureCorpus.Load(Path.Combine(KeepverseRoots.Content(), "data", "seed", "structures")));
 SummoningTuningHub.Configure(SummoningTuningLoader.Parse(Read("summoning.v1.json")));
 FusionRpg.Core.Aura.AuraTuningHub.Configure(
     FusionRpg.Core.Aura.AuraTuningLoader.Parse(Read("aura.v1.json")));
@@ -167,7 +168,7 @@ var outcome2 = ProveDodgeCooldownRaisesStanding_ThetaAloneDoesNot(store);
 var result = new ProveHubCombatResult(outcome1, outcome2, outcome1.Pass && outcome2.Pass);
 var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
 
-outPath ??= Path.Combine(repoRoot, "docs", "research", "actor-hub-and-combat-power", "_prove-hub-combat.json");
+outPath ??= Path.Combine(KeepverseRoots.Workspace(), "docs", "research", "actor-hub-and-combat-power", "_prove-hub-combat.json");
 Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
 File.WriteAllText(outPath, json);
 Console.WriteLine(json);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Core.Items.Materials;
 using FusionRpg.Core.Items.Sockets;
@@ -39,7 +40,7 @@ public static class ComboBudgetDump
     public static int Run(string seedRoot)
     {
         var repoRoot = RepoRootOf(seedRoot);
-        var tuningDir = Path.Combine(repoRoot, "data", "tuning");
+        var tuningDir = Path.Combine(KeepverseRoots.Core(), "data", "tuning");
         var seedDir = Path.GetDirectoryName(seedRoot)!;
 
         var sockets = SocketTuning.Parse(

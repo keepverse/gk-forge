@@ -31,7 +31,7 @@ public class TreeBinderStatusTests
         TreeBranch.Off, 1, "n0");
 
     static PowerTuning Tuning() => PowerTuningLoader.Parse(File.ReadAllText(
-        Path.Combine(FindRepoRoot(), "data", "tuning", "power-scale.v2.json")));
+        Path.Combine(KeepverseRoots.Core(), "data", "tuning", "power-scale.v2.json")));
 
     static TreeCatalogMeta Meta() => new("primary", "aptitude.Might@Commander", "broad-and-flat",
         10, 2, new[] { 4, 4, 4, 4, 4, 4, 4, 4, 4, 4 }, 1, null, null);
@@ -101,7 +101,7 @@ public class TreeBinderStatusTests
         Assert.Equal("blight", statusEl.GetProperty("statusId").GetString());
 
         var tuning = PassiveTreeTuningLoader.Parse(File.ReadAllText(
-            Path.Combine(FindRepoRoot(), "data", "tuning", "passive-tree.v1.json")));
+            Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var (tree, report) = PassiveTreeCatalogLoader.Load(json, tuning);
         Assert.True(tree is not null, "loader refusals: " + string.Join(" | ", report.Refusals));
         var loaded = Assert.Single(tree!.Nodes);

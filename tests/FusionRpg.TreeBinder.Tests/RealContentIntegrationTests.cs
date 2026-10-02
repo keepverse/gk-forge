@@ -30,11 +30,10 @@ public class RealContentIntegrationTests
     [Fact]
     public void Real_might_plan_reads_40_nodes_with_todays_honest_all_refused_state()
     {
-        var root = RepoRoot();
         var treeTuning = PassiveTreeTuningLoader.Parse(
-            File.ReadAllText(Path.Combine(root, "data", "tuning", "passive-tree.v1.json")));
+            File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var powerTuning = PowerTuningLoader.Parse(
-            File.ReadAllText(Path.Combine(root, "data", "tuning", "power-scale.v2.json")));
+            File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "data", "tuning", "power-scale.v2.json")));
 
         var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "might.v1.json"));
         var nodes = PlanReader.ReadPlanNodes(planJson, treeTuning);
@@ -66,9 +65,9 @@ public class RealContentIntegrationTests
     {
         var root = RepoRoot();
         var treeTuning = PassiveTreeTuningLoader.Parse(
-            File.ReadAllText(Path.Combine(root, "data", "tuning", "passive-tree.v1.json")));
+            File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var powerTuning = PowerTuningLoader.Parse(
-            File.ReadAllText(Path.Combine(root, "data", "tuning", "power-scale.v2.json")));
+            File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "data", "tuning", "power-scale.v2.json")));
         var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "might.v1.json"));
         var nodes = PlanReader.ReadPlanNodes(planJson, treeTuning);
 
@@ -103,9 +102,8 @@ public class RealContentIntegrationTests
     [Fact]
     public void The_real_ferocity_seed_reads_via_ReadPlanNodesWithSeed_exactly_as_the_real_CLI_does()
     {
-        var root = RepoRoot();
         var treeTuning = PassiveTreeTuningLoader.Parse(
-            File.ReadAllText(Path.Combine(root, "data", "tuning", "passive-tree.v1.json")));
+            File.ReadAllText(Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
 
         var planJson = File.ReadAllText(Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "plan", "ferocity.v1.json"));
         var seedPath = Path.Combine(KeepverseRoots.Content(), "data", "seed", "passive-tree", "nodes", "ferocity.json");

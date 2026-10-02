@@ -178,7 +178,7 @@ public class ReportWriterTests
         var json = ReportWriter.Serialize("might", Meta(), new[] { input }, report);
 
         var tuning = PassiveTreeTuningLoader.Parse(File.ReadAllText(
-            Path.Combine(FindRepoRoot(), "data", "tuning", "passive-tree.v1.json")));
+            Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var (loaded, importReport) = PassiveTreeCatalogLoader.Load(json, tuning);
 
         Assert.True(importReport.IsOk, string.Join("; ", importReport.Refusals));
@@ -223,7 +223,7 @@ public class ReportWriterTests
             Array.Empty<BindInputNode>(), report);
 
         var tuning = PassiveTreeTuningLoader.Parse(File.ReadAllText(
-            Path.Combine(FindRepoRoot(), "data", "tuning", "passive-tree.v1.json")));
+            Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var (loaded, importReport) = PassiveTreeCatalogLoader.Load(json, tuning);
 
         Assert.True(importReport.IsOk, string.Join("; ", importReport.Refusals));
@@ -285,7 +285,7 @@ public class ReportWriterTests
         var json = ReportWriter.Serialize("ferocity", Meta(), new[] { input }, report);
 
         var tuning = PassiveTreeTuningLoader.Parse(File.ReadAllText(
-            Path.Combine(FindRepoRoot(), "data", "tuning", "passive-tree.v1.json")));
+            Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var (loaded, importReport) = PassiveTreeCatalogLoader.Load(json, tuning);
 
         Assert.True(importReport.IsOk, string.Join("; ", importReport.Refusals));
@@ -305,7 +305,7 @@ public class ReportWriterTests
         var json = ReportWriter.Serialize("ferocity", Meta(), new[] { input }, report);
 
         var tuning = PassiveTreeTuningLoader.Parse(File.ReadAllText(
-            Path.Combine(FindRepoRoot(), "data", "tuning", "passive-tree.v1.json")));
+            Path.Combine(KeepverseRoots.Core(), "data", "tuning", "passive-tree.v1.json")));
         var (loaded, importReport) = PassiveTreeCatalogLoader.Load(json, tuning);
 
         Assert.True(importReport.IsOk, string.Join("; ", importReport.Refusals));

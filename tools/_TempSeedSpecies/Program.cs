@@ -1,4 +1,5 @@
 using FusionRpg.Core.Creatures.Generation;
+using FusionRpg.Core.Workspace;
 using FusionRpg.Data;
 
 // Temporary, throwaway tool (NOT committed): seed the real dist DB's species roster directly from
@@ -18,7 +19,7 @@ if (args.Length < 3)
 var dbDir = args[0];
 var dir = args[1];
 var repoRoot = args[2];
-var tuningDir = Path.Combine(repoRoot, "data", "tuning");
+var tuningDir = Path.Combine(KeepverseRoots.Core(), "data", "tuning");
 
 FusionRpg.Core.Creatures.Contracts.ContractPolicy.Configure(
     FusionRpg.Core.Creatures.Contracts.ContractTuningLoader.Parse(
@@ -82,7 +83,7 @@ FusionRpg.Core.Stats.Derived.StatsTuningHub.Configure(
 FusionRpg.Core.Expeditions.ExpeditionTuningHub.Configure(
     FusionRpg.Core.Expeditions.ExpeditionTuningLoader.Parse(
         File.ReadAllText(Path.Combine(tuningDir, "expeditions.v2.json"))));
-var dungeonRegistryDir = Path.Combine(repoRoot, "data", "seed", "dungeon", "_registry");
+var dungeonRegistryDir = Path.Combine(KeepverseRoots.Content(), "data", "seed", "dungeon", "_registry");
 var dungeonRegistries = FusionRpg.Core.Dungeon.Registry.DungeonRegistryLoader.LoadAll(dungeonRegistryDir);
 FusionRpg.Core.Dungeon.Tuning.DungeonTuningHub.Configure(
     FusionRpg.Core.Dungeon.Tuning.DungeonTuningLoader.Parse(
@@ -96,7 +97,7 @@ FusionRpg.Core.Dungeon.Tuning.EncounterTuningHub.Configure(
 FusionRpg.Core.Dungeon.Registry.DungeonRegistryHub.Configure(dungeonRegistries);
 {
     var layoutRows = FusionRpg.Core.Delve.Roll.LayoutSeedFile.LoadAll(
-        Path.Combine(repoRoot, "data", "seed", "dungeon", "layouts"));
+        Path.Combine(KeepverseRoots.Content(), "data", "seed", "dungeon", "layouts"));
     var layoutLoad = FusionRpg.Core.Delve.Roll.LayoutTemplateCatalog.Load(
         layoutRows, FusionRpg.Core.Dungeon.Registry.BandCatalog.All, FusionRpg.Core.Dungeon.Registry.RaidModeCatalog.All);
     if (layoutLoad.Rejections.Count > 0)
@@ -140,7 +141,7 @@ FusionRpg.Core.Battle.Board.BattleBoardTuningPolicy.Configure(
         File.ReadAllText(Path.Combine(tuningDir, "battle-board.v1.json"))));
 FusionRpg.Core.World.StructureCatalog.Configure(
     FusionRpg.Core.World.StructureSeed.StructureCorpus.Load(
-        Path.Combine(repoRoot, "data", "seed", "structures")));
+        Path.Combine(KeepverseRoots.Content(), "data", "seed", "structures")));
 FusionRpg.Core.Creatures.SummoningTuningHub.Configure(
     FusionRpg.Core.Creatures.SummoningTuningLoader.Parse(
         File.ReadAllText(Path.Combine(tuningDir, "summoning.v1.json"))));

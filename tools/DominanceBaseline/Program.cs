@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FusionRpg.Core.Workspace;
 using System.Text.RegularExpressions;
 using FusionRpg.Core.Balance.Guards;
 using FusionRpg.Core.Battle;
@@ -32,7 +33,7 @@ var outPath = ArgOrDefault(args, "--out", "");
 // literal, matching AptitudeTuningHub.cs's own doc-comment warning about exactly that staleness risk,
 // and gk-core/tools/ResidualFitLoop's own established Configure-at-startup pattern.
 var repoRoot = FindRepoRoot();
-var tuningDir = Path.Combine(repoRoot, "data", "tuning");
+var tuningDir = Path.Combine(KeepverseRoots.Core(), "data", "tuning");
 string Read(string domain) => File.ReadAllText(Path.Combine(tuningDir, LatestTuningFileName(tuningDir, domain)));
 string ReadPinned(string fileName) => File.ReadAllText(Path.Combine(tuningDir, fileName));
 
@@ -141,7 +142,7 @@ if (wantGeared)
     // Everything under gk-data/packs/fusion/data/seed/atoms is collected through the shipped Core-side reader
     // (AtomSeedFile, the same one the importer uses) and filtered to the one kind equipment
     // contributes through, exactly as EquipAtomSource itself filters.
-    var atomsRoot = Path.Combine(repoRoot, "data", "seed", "atoms");
+    var atomsRoot = Path.Combine(KeepverseRoots.Content(), "data", "seed", "atoms");
     var seedFiles = Directory.Exists(atomsRoot)
         ? Directory.GetFiles(atomsRoot, "*.json", SearchOption.AllDirectories)
             .OrderBy(f => f, StringComparer.Ordinal)
