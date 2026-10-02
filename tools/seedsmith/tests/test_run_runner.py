@@ -18,8 +18,11 @@ pytest.importorskip("langgraph.graph")
 from seedsmith.adapters.creatures.anchor.prompts import PIPELINES  # noqa: E402
 from seedsmith.adapters.creatures.power.bands import classify as classify_threat  # noqa: E402
 from seedsmith.adapters.creatures.power.parse import parse_power_seed  # noqa: E402
-from seedsmith.adapters.creatures.preflight import PREFLIGHT_RECORD_NAME, _compute_content_hash  # noqa: E402
+from seedsmith.adapters.creatures import preflight as preflight_module  # noqa: E402
+from seedsmith.adapters.creatures.preflight import (  # noqa: E402
+    PREFLIGHT_RECORD_NAME, _compute_content_hash, manifest_data_hash)
 from seedsmith.adapters.creatures.run import runner  # noqa: E402
+from seedsmith.adapters.creatures.run import record as record_module  # noqa: E402
 from seedsmith.adapters.creatures.run.record import RunRecord, write_record  # noqa: E402
 from test_run_orchestrator import always_valid_call  # noqa: E402
 
@@ -98,10 +101,99 @@ SPECIES = [species_row("alpha", "plant", 1), species_row("beta", "plant", 2)]
 
 
 def write_real_preflight(dump_dir: Path) -> None:
-    dump_hash = _compute_content_hash(dump_dir)
+    # `manifest_data_hash`, NOT `_compute_content_hash`. `run-control` compares this value against
+    # `runner._compute_dump_hash`, which returns the manifest's dataHash, so a record written from
+    # the content hash describes a key the gate never asks about. On a stamp-free fixture the two
+    # coincide and the mistake is invisible, which is how it reached the real tree - see
+    # test_a_preflight_record_planted_with_stamps_is_still_acceptable_to_run_control.
+    dump_hash = manifest_data_hash(dump_dir)
     record = {"dumpHash": dump_hash, "modelId": "stub", "lockHash": None, "skipModel": False,
               "writtenUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     (dump_dir / PREFLIGHT_RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+
+
+def _add_volatile_stamps(dump_dir: Path) -> None:
+    """Give the planted payloads the stamp fields the REAL corpus carries - 677 plant + 227 zombie
+    `rebuiltUtc` and 82 spawn-baseline `capturedUtc`, 986 in total on the committed tree.
+
+    Without these the content hash and the data hash are byte-identical, because the data hash only
+    differs by normalising stamps away. That coincidence is what let a preflight record written from
+    the wrong key pass `run-control` in every test while refusing on the real corpus."""
+    for rel, key in (("almanac/plant.json", "rebuiltUtc"),
+                     ("almanac/zombie.json", "rebuiltUtc"),
+                     ("spawn-baseline.json", "capturedUtc")):
+        path = dump_dir / rel
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        for row in rows:
+            row[key] = "2026-09-17T14:50:55.7807434Z"
+        path.write_text(json.dumps(rows), encoding="utf-8")
+    # The manifest's dataHash is a pure function of the payload bytes, so re-stamp it after planting.
+    _restamp_manifest(dump_dir)
+
+
+def test_a_preflight_record_planted_with_stamps_is_still_acceptable_to_run_control(tmp_path):
+    """The defect this pins: `preflight` recorded the CONTENT hash while `run-control` compares the
+    DATA hash, so on any corpus carrying stamps - which is every real one - `can_start` refused
+    forever and `start` / `rerun` / `overwrite-all` could not run. 986 stamp fields make the two
+    diverge on the committed tree; the stamp-free fixtures made them coincide, so the suite was green
+    throughout. Both halves are asserted: that the hashes really do differ here (so this test cannot
+    pass vacuously), and that the gate still accepts the record."""
+    paths = make_paths(tmp_path)
+    _add_volatile_stamps(paths.dump_dir)
+
+    content_hash = _compute_content_hash(paths.dump_dir)
+    data_hash = manifest_data_hash(paths.dump_dir)
+    assert content_hash != data_hash, (
+        "this fixture is supposed to make the two hashes diverge; if they are equal the test is "
+        "vacuous and the defect it guards is not being exercised")
+
+    write_real_preflight(paths.dump_dir)
+    preflight = json.loads((paths.dump_dir / PREFLIGHT_RECORD_NAME).read_text(encoding="utf-8"))
+    assert preflight["dumpHash"] == data_hash
+
+    ok, reason = record_module.can_start(preflight, dump_hash=runner._compute_dump_hash(paths.dump_dir),
+                                         existing_record=None)
+    assert ok, reason
+
+
+def test_preflight_itself_records_the_key_run_control_compares_not_the_content_hash(tmp_path):
+    """This is the test that actually pins the fix. The two above go through `write_real_preflight`,
+    which plants a record directly, so they pin the FIXTURE's contract - and a mutant that reverts
+    `run_preflight` to the content hash passes both of them. Measured: reverting it left 75/75 green.
+
+    So this one calls `run_preflight` itself, on a corpus whose stamps make the two hashes differ,
+    and asserts the returned hash is the one `run-control` will be handed. `skip_model=True` keeps it
+    hermetic; `full_pass` is not asserted because a skip-model record is CI's escape hatch and
+    `can_start` rejects it for that separate, already-pinned reason."""
+    paths = make_paths(tmp_path)
+    _add_volatile_stamps(paths.dump_dir)
+
+    content_hash = _compute_content_hash(paths.dump_dir)
+    data_hash = manifest_data_hash(paths.dump_dir)
+    assert content_hash != data_hash, "fixture must make the two hashes diverge"
+
+    report = preflight_module.run_preflight(dump_dir=paths.dump_dir, skip_model=True,
+                                            lock_path=paths.dump_dir / "no-such-lock")
+
+    assert report.dump_hash == data_hash, (
+        f"preflight recorded {report.dump_hash} but run-control compares against {data_hash}; "
+        f"the content hash is {content_hash} and is never what the gate asks about")
+    assert report.dump_hash != content_hash
+
+
+def test_a_preflight_record_written_from_the_content_hash_is_refused_on_a_stamped_corpus(tmp_path):
+    """The other direction, so the fix cannot be replaced with a permissive comparison: a record
+    carrying the content hash must be REFUSED on a corpus whose stamps make the two hashes differ.
+    This is the shape that reached the real tree."""
+    paths = make_paths(tmp_path)
+    _add_volatile_stamps(paths.dump_dir)
+
+    stale_record = {"dumpHash": _compute_content_hash(paths.dump_dir), "modelId": "stub",
+                    "lockHash": None, "skipModel": False, "writtenUtc": "2026-10-02T00:00:00Z"}
+    ok, reason = record_module.can_start(stale_record, dump_hash=runner._compute_dump_hash(paths.dump_dir),
+                                         existing_record=None)
+    assert not ok
+    assert "does not match" in reason
 
 
 def make_paths(tmp_path: Path, species=SPECIES) -> runner.RunPaths:

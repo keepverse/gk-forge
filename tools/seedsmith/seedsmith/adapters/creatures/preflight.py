@@ -398,7 +398,28 @@ def run_preflight(
         c5, c6, _ = check_5_and_6_model(call_model_fn=call_model_fn)
         checks = (c1, c2, c3, c4, c5, c6, c7, c8, c9)
 
-    dump_hash = _compute_content_hash(dump_dir)
+    # The snapshot key recorded here MUST be the same key `run-control` compares, or the gate it
+    # writes is a gate nothing can ever pass.
+    #
+    # It used to be `_compute_content_hash`. That is the CONTENT hash, which covers the payloads'
+    # 986 volatile stamp fields (677 plant + 227 zombie `rebuiltUtc`, 82 spawn-baseline
+    # `capturedUtc`) and therefore moves on every re-capture. `run/record.py` compares this value
+    # against `runner._compute_dump_hash`, which returns the manifest's `dataHash`. The two are
+    # equal only when the payloads happen to carry no stamps at all - true of every test fixture
+    # (`species_row()` emits no `rebuiltUtc`/`capturedUtc`) and false of the real tree. So
+    # `can_start` returned False on the committed corpus forever, and `start` / `rerun` /
+    # `overwrite-all` could not run at all, with the suite green throughout.
+    #
+    # Reading the manifest through `manifest_data_hash` rather than recomputing keeps ONE source of
+    # truth: it is the value every `_provenance.dumpHash` records, and it re-verifies the envelope
+    # against the payload bytes on the way, so a preflight cannot bless a stale manifest.
+    try:
+        dump_hash = manifest_data_hash(dump_dir)
+    except MissingDataHash as exc:
+        raise MissingDataHash(
+            f"{exc} A preflight record written from contentHash could never satisfy run-control's "
+            f"dataHash comparison, so it is not written at all."
+        ) from exc
     return PreflightReport(checks=checks, dump_hash=dump_hash, model_id=model_id)
 
 
