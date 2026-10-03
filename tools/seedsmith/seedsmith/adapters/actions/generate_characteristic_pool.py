@@ -169,9 +169,17 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, creatures_root: Path = CREA
     if write:
         gen = actions_root / "_generated"
         gen.mkdir(parents=True, exist_ok=True)
-        (gen / "role-lean.json").write_text(_canonical_dump(role_lean_doc), encoding="utf-8")
-        (gen / "characteristic-pool.json").write_text(_canonical_dump(pool_doc), encoding="utf-8")
-        (gen / "family-map.json").write_text(_canonical_dump(family_assignments), encoding="utf-8")
+        # `newline="\n"` on all three, per the house convention emit.py and
+        # adapters/items/setgen/seedfile.py already follow. Measured 2026-10-04: without it these three
+        # wrote 38,279 / 310 / 4,063 CR bytes on Windows, so a regenerated tree differed from its own
+        # committed blob by line endings alone - the same defect fixed in generate_type_weights.py, and
+        # part of the same 65 writers that never received it.
+        (gen / "role-lean.json").write_text(
+            _canonical_dump(role_lean_doc), encoding="utf-8", newline="\n")
+        (gen / "characteristic-pool.json").write_text(
+            _canonical_dump(pool_doc), encoding="utf-8", newline="\n")
+        (gen / "family-map.json").write_text(
+            _canonical_dump(family_assignments), encoding="utf-8", newline="\n")
 
     by_source: "dict[str, int]" = {}
     for e in entries:
