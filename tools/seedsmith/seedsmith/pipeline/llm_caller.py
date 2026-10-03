@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import re
 import time
 import tomllib
@@ -43,7 +44,16 @@ class LlmCallerConfig:
     heal budget is a config change, not a code change.
     """
 
-    endpoint: str = "http://localhost:1234/v1/chat/completions"
+    # An endpoint is CONFIGURED, never assumed. The built-in used to be LM Studio's
+    # `http://localhost:1234/v1/chat/completions`, which is the worst possible default for a tool
+    # that authors a corpus: it is a routable address, so a test or a command that simply forgot to
+    # configure one did not fail - it silently reached whatever happened to be listening and spent
+    # real time generating. That was observed, not theorised: a negative test written here answered
+    # in 23s from `google/gemma-4-26b-a4b-qat` instead of raising. Empty means "not configured", and
+    # `call_model` turns that into the named refusal AUTHORING-NO-ENDPOINT rather than a connection
+    # error. Owner ruling 2026-10-03. Set `SEEDSMITH_LLM_ENDPOINT` in .env, `endpoint` in
+    # [pipeline.llm_caller], or pass `--endpoint`.
+    endpoint: str = ""
     model: str = "google/gemma-4-26b-a4b-qat"
     timeout: float = 420.0          # a 26B model at high context is slow; be patient
     attempts: int = 2               # hammering a wedged local queue with retries makes it worse
@@ -177,6 +187,15 @@ def load_config(toml_path: Path | None = None, *, dotenv_path: Path | None = Non
         for env_key, (field, caster) in _ENV_KEYS.items():
             if env_key in env_values and env_values[env_key] != "":
                 resolved[field] = caster(env_values[env_key])
+
+    # Process environment LAST, so it wins. `report/cli.py` exports this from an explicit `--mode`
+    # on this command line, and a flag the operator just typed outranks a `.env` they edited weeks
+    # ago - the same precedence `resolve_live_transport` already documents for endpoint and model
+    # ("the flag wins when the operator actually passed a non-empty value"). Read in this order:
+    # toml -> .env -> process env -> built-in default.
+    process_mode = (os.environ.get("SEEDSMITH_LLM_MODE") or "").strip()
+    if process_mode:
+        resolved["mode"] = process_mode
 
     return LlmCallerConfig(**resolved)
 
@@ -388,6 +407,17 @@ def call_model(system: str, user: str, *, config: LlmCallerConfig | None = None,
             f"config.mode is {mode!r}, which is neither 'api' nor 'delegated'. Refused rather than "
             "defaulted: a wrong mode must never quietly select a transport, and 'delegated' is the "
             "one that may edit the corpus.",
+        )
+    # API mode with nothing configured is a NAMED refusal, not a connection error. `LlmCallerConfig`
+    # ships an empty endpoint precisely so this branch is reachable: there is no routable default
+    # left to fall through onto.
+    if not (getattr(config, "endpoint", "") or "").strip():
+        from ..plumbing.authorer import AuthoringRefusal
+        raise AuthoringRefusal(
+            "AUTHORING-NO-ENDPOINT",
+            "API mode is selected and no endpoint is configured. Set SEEDSMITH_LLM_ENDPOINT in "
+            ".env, `endpoint` in [pipeline.llm_caller], or pass --endpoint. This never falls back "
+            "to a delegated agent: that mode may edit the corpus.",
         )
     payload = {
         "model": config.model, "temperature": temperature,

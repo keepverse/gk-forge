@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -4567,4 +4568,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # `--mode` becomes PROCESS CONFIG at the CLI boundary, rather than being threaded as an
+    # argument through every subcommand that re-parses argv. Six of the authoring subcommands
+    # dispatch by handing a reconstructed `passthrough` list to a child module's own `main()`
+    # (theme_enrich, generate_commander_effects, materialgen, basetypegen, gemgen,
+    # consumablegen, recipegen, generate_affixes), and each of those children had its own
+    # `--endpoint`/`--model` but no `--mode` — so forwarding the flag alone would have made
+    # argparse reject it. An audit found the consequence: `--mode delegated` was ACCEPTED on four
+    # subcommands and then silently discarded, which is a broken promise even though it fails in
+    # the safe direction. Setting the environment variable here reaches every child, including
+    # grandchildren, through the config chain `resolve_live_transport` already reads.
+    #
+    # Only ever set, never defaulted: an absent flag leaves the process environment alone, so
+    # nothing here can turn a run into a delegated one.
+    mode = (getattr(args, "mode", "") or "").strip()
+    if mode:
+        os.environ["SEEDSMITH_LLM_MODE"] = mode
     return args.func(args)

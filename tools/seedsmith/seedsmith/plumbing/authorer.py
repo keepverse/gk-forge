@@ -166,7 +166,19 @@ class ApiAuthorer(Authorer):
         if call is None:
             from ..pipeline import llm_caller  # lazy: llm_caller dispatches through this module
             call = llm_caller.call_model
-        return call(system, user, config=self._config, schema=dict(schema) if schema else None)
+        # The seam's decision is authoritative END TO END. `call_model` dispatches on
+        # `config.mode`, so handing it a config that still says "delegated" would re-dispatch and
+        # delegate anyway - `resolve_authorer("api")` would build an ApiAuthorer which then quietly
+        # asked a sub-agent. That inverts `live_answer_caller`'s documented precedence
+        # (argument -> config -> default) one layer below where it is documented, and no test caught
+        # it: the mutation that fixed it passed both suites green. It was latent (0 of 11 call sites
+        # pass `mode=` today) and latent is how this becomes live. Pinning the mode here makes
+        # "which authorer was chosen" a property of the authorer, not something re-decided per call.
+        config = self._config
+        if (getattr(config, "mode", "api") or "api").strip() != "api":
+            import dataclasses
+            config = dataclasses.replace(config, mode="api")
+        return call(system, user, config=config, schema=dict(schema) if schema else None)
 
     def describe(self) -> str:
         return f"api[{getattr(self._config, 'model', '?')}]"

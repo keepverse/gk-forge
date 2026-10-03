@@ -474,7 +474,16 @@ class LateConfigResolutionTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         env_path = Path(self.tmp.name) / ".env"
-        env_path.write_text("SEEDSMITH_LLM_MODEL=hermetic-env-model\n", encoding="utf-8")
+        # The endpoint is planted too, and deliberately so: these tests are about LATE config
+        # resolution (the model must come from `.env` at call time, not from a snapshot taken at
+        # import), and with no endpoint planted the call now refuses with AUTHORING-NO-ENDPOINT
+        # before `_stream_once` is reached. Previously they passed only because the built-in
+        # default was a routable localhost address, which meant a test whose subject was config
+        # resolution also depended on whatever was listening on that port.
+        env_path.write_text(
+            "SEEDSMITH_LLM_MODEL=hermetic-env-model\n"
+            "SEEDSMITH_LLM_ENDPOINT=http://hermetic.invalid/v1/chat/completions\n",
+            encoding="utf-8")
         self.dotenv_path = env_path
 
     def test_call_model_resolves_env_when_config_omitted(self) -> None:

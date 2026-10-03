@@ -33,6 +33,7 @@ from seedsmith.plumbing import authorer as authorer_mod
 from seedsmith.plumbing.authorer import (
     DEFAULT_MODE,
     MODES,
+    ApiAuthorer,
     AuthoringRefusal,
     resolve_authorer,
 )
@@ -226,6 +227,151 @@ class NoImplicitTriggerTests(unittest.TestCase):
                 call_model("sys", "user",
                            config=LlmCallerConfig(mode="", endpoint="http://127.0.0.1:1/x"))
         seam.assert_not_called()
+
+
+# --- the seam's decision must survive the trip down to call_model -----------------------
+
+
+class SeamDecisionIsAuthoritativeTests(unittest.TestCase):
+    """The inversion an audit found, and the mutation that fixed it passed BOTH suites green.
+
+    `ApiAuthorer.answer` calls `llm_caller.call_model`, and `call_model` dispatches on
+    `config.mode`. So `resolve_authorer("api", config=<mode=delegated>)` used to build an
+    ApiAuthorer which then re-dispatched and delegated anyway — the seam asked for api, the
+    transport answered with a sub-agent. Nothing tested it. Latent (no call site passes `mode=`),
+    and latent is how this becomes live.
+    """
+
+    def test_api_authorer_pins_api_on_the_config_it_hands_down(self):
+        seen: dict = {}
+
+        def fake_call(system, user, *, config=None, schema=None):
+            seen["mode"] = getattr(config, "mode", "<absent>")
+            return "answer"
+
+        authorer = ApiAuthorer(LlmCallerConfig(mode="delegated", endpoint="http://127.0.0.1:1/x"),
+                               call=fake_call)
+        self.assertEqual(authorer.answer("s", "u"), "answer")
+        self.assertEqual(seen["mode"], "api",
+                         "ApiAuthorer must hand call_model an api config, whatever its own config says")
+
+    def test_the_inversion_is_reachable_through_live_answer_caller(self):
+        """The same trap one layer up, which is how an operator would actually hit it."""
+        seen: dict = {}
+
+        def fake_call(system, user, *, config=None, schema=None):
+            seen["mode"] = getattr(config, "mode", "<absent>")
+            return '{"ok": true}'
+
+        call = live_answer_caller(LlmCallerConfig(mode="delegated", endpoint="http://127.0.0.1:1/x"),
+                                  mode="api", authorer=ApiAuthorer(
+                                      LlmCallerConfig(mode="delegated",
+                                                      endpoint="http://127.0.0.1:1/x"),
+                                      call=fake_call),
+                                  validator=None)
+        self.assertEqual(call("brief", {}), {"ok": True})
+        self.assertEqual(seen["mode"], "api")
+
+
+# --- no routable default endpoint -------------------------------------------------------
+
+
+class NoRoutableDefaultTests(unittest.TestCase):
+    """Owner ruling 2026-10-03, after a test answered from a live model instead of raising."""
+
+    def test_the_built_in_endpoint_is_empty(self):
+        self.assertEqual(LlmCallerConfig().endpoint, "",
+                         "a routable built-in endpoint lets an unconfigured run reach a live model")
+
+    def test_api_mode_with_no_endpoint_is_a_named_refusal_not_a_connection_error(self):
+        with self.assertRaises(AuthoringRefusal) as ctx:
+            call_model("sys", "user", config=LlmCallerConfig(mode="api", endpoint=""))
+        self.assertEqual(ctx.exception.code, "AUTHORING-NO-ENDPOINT")
+
+    def test_the_refusal_names_how_to_configure_an_endpoint(self):
+        with self.assertRaises(AuthoringRefusal) as ctx:
+            call_model("sys", "user", config=LlmCallerConfig(mode="api"))
+        self.assertIn("SEEDSMITH_LLM_ENDPOINT", ctx.exception.detail)
+
+    def test_api_mode_with_an_endpoint_configured_still_reaches_the_transport(self):
+        """The refusal must not swallow a legitimately configured call."""
+        import unittest.mock as m
+        with m.patch.object(llm_caller, "_stream_once", return_value='{"k": "v"}') as stream:
+            out = call_model("sys", "user",
+                             config=LlmCallerConfig(mode="api",
+                                                    endpoint="http://127.0.0.1:1/x"))
+        self.assertEqual(out, '{"k": "v"}')
+        self.assertEqual(stream.call_count, 1)
+
+
+# --- the CLI flag must reach nested subcommands -----------------------------------------
+
+
+class CliModeReachesNestedTests(unittest.TestCase):
+    """Audit finding: 4 of 9 `--mode` subcommands accepted the flag and silently discarded it.
+
+    The subcommands dispatch by rebuilding a `passthrough` argv for a child module that has its own
+    parser. Six child parsers had `--endpoint`/`--model` and no `--mode`. Forwarding alone would
+    have made argparse reject it, so the fix exports the flag as process config at the CLI boundary
+    and every child reads it through `load_config`.
+    """
+
+    def test_main_exports_the_flag_as_process_config(self):
+        import os as _os
+        from seedsmith.report import cli as cli_mod
+
+        seen: dict = {}
+
+        def _func(args):
+            seen["func_ran"] = True
+            return 0
+
+        class _Args:
+            mode = "delegated"
+
+            def __init__(self):
+                self.func = _func
+
+        class _Parser:
+            def parse_args(self, argv=None):
+                return _Args()
+
+        old_build = cli_mod.build_parser
+        cli_mod.build_parser = lambda: _Parser()
+        old_env = _os.environ.pop("SEEDSMITH_LLM_MODE", None)
+        exported: dict = {}
+        real_setitem = _os.environ.__class__.__setitem__
+        try:
+            rc = cli_mod.main([])
+            exported["mode"] = _os.environ.get("SEEDSMITH_LLM_MODE")
+        finally:
+            cli_mod.build_parser = old_build
+            _os.environ.pop("SEEDSMITH_LLM_MODE", None)
+            if old_env is not None:
+                _os.environ["SEEDSMITH_LLM_MODE"] = old_env
+        self.assertEqual(rc, 0)
+        self.assertTrue(seen.get("func_ran"))
+        # captured DURING the call, before the finally block cleaned the environment
+        self.assertEqual(exported.get("mode"), "delegated")
+
+    def test_load_config_honours_the_exported_process_variable(self):
+        import os as _os
+        import pathlib as _pl
+        old = _os.environ.get("SEEDSMITH_LLM_MODE")
+        _os.environ["SEEDSMITH_LLM_MODE"] = "delegated"
+        try:
+            self.assertEqual(load_config(dotenv_path=_pl.Path("nonexistent.env")).mode, "delegated")
+        finally:
+            _os.environ.pop("SEEDSMITH_LLM_MODE", None)
+            if old is not None:
+                _os.environ["SEEDSMITH_LLM_MODE"] = old
+
+    def test_an_absent_flag_leaves_the_environment_alone(self):
+        """The export must never be what CREATES a delegated run - only what carries one."""
+        import os as _os
+        import pathlib as _pl
+        _os.environ.pop("SEEDSMITH_LLM_MODE", None)
+        self.assertEqual(load_config(dotenv_path=_pl.Path("nonexistent.env")).mode, "api")
 
 
 if __name__ == "__main__":  # pragma: no cover
