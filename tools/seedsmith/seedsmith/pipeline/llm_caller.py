@@ -69,10 +69,20 @@ class LlmCallerConfig:
     #: a caller's own schema happens to cap every field.
     max_tokens: int = 16384
     #: WHICH AUTHORER answers. `"api"` or `"delegated"` — the closed pair owned by the seam in
-    #: `plumbing/authorer.py`, not by this module. Carried on the CONFIG rather than on each call so
-    #: that every adapter already threading a `LlmCallerConfig` inherits it: 46 of the transport call
-    #: sites pass a config and would otherwise each need their own `--mode` plumbing, which is how a
-    #: second transport grew in the first place.
+    #: `plumbing/authorer.py`, not by this module. Carried on the CONFIG rather than on each call, so
+    #: that an adapter which already threads an `LlmCallerConfig` inherits it with no edit of its own
+    #: — which is the point, since per-call `--mode` plumbing is how a second transport grew here in
+    #: the first place.
+    #:
+    #: The number that was here before ("46 of the transport call sites pass a config") did not
+    #: survive an audit and is deliberately not restated: an independent count found 21 direct
+    #: transport invocations, all of which thread a config, plus 14 injected defaults that do not —
+    #: because they are stubs passed as a *parameter*, so the config arrives from the caller rather
+    #: than the default. Counting reach points rather than invocations gives 35 across 27 files, or 71
+    #: across 36 once config factories are included. The claim is structural, not a count: any site
+    #: that resolves its config through `resolve_live_transport` or `load_config` reads this field.
+    #: One known exception is named in `adapters/structures/generate_anchor.py`, which defaults
+    #: `config=LlmCallerConfig()` at import and therefore never consults the config chain at all.
     #:
     #: The literal is spelled here instead of imported from the seam because `authorer` imports this
     #: module (`ApiAuthorer.answer` calls `call_model`), so importing back at module scope would be a
