@@ -74,6 +74,47 @@ DEFAULT_MODE = "api"
 #: under the repository's assistant-config directory (see `.claude/opencode-agents/`).
 CHARTER_ENV_VAR = "SEEDSMITH_MODEL_CHARTER"
 
+#: Windows exit codes a delegated subprocess produces when the MACHINE ran out of resources rather
+#: than the prompt being wrong. Measured 2026-10-03 on the 904-species delegated run: 16 concurrent
+#: agents produced 35 failures in a burst, of which 15 were 0xC0000409 (NT
+#: STATUS_FAIL_FAST_EXCEPTION, what a fail-fast abort looks like from a parent) and 3 were the
+#: explicit WinError 1455 "paging file too small" and 1450 "insufficient system resources". Every
+#: one arrived with NO stderr, so the old message was `the delegated agent exited 3221226505: (no
+#: stderr)` — true, and useless. It reads like a flaky model. It is a page-file ceiling, and the
+#: only fix is fewer concurrent agents.
+_RESOURCE_EXITS: "dict[int, str]" = {
+    0xC0000409: (
+        "the subprocess aborted rather than answering (NT STATUS_FAIL_FAST_EXCEPTION). On this "
+        "machine that is the signature of resource exhaustion, not a bad answer: it appeared 15 "
+        "times in a 35-failure burst with empty stderr while 16 delegated agents ran at once. "
+        "Lower the worker count."
+    ),
+    0xC0000005: "the subprocess crashed with an access violation (NT STATUS_ACCESS_VIOLATION).",
+    0xC0000017: (
+        "the OS refused to allocate memory (NT STATUS_NO_MEMORY) — out of commit or page file. "
+        "Lower the worker count."
+    ),
+    3221225781: "the Windows loader could not find a DLL (ERROR_MOD_NOT_FOUND).",
+    3221225786: "the Windows loader could not open a DLL (ERROR_PROC_NOT_FOUND).",
+}
+
+
+def _describe_exit(returncode: int, stderr: str) -> str:
+    """Name a subprocess exit code when the code itself is the diagnosis.
+
+    Without this the caller gets a bare number. With it, a crash is told apart from a refusal, and
+    an exit code meaning "the machine is full" says so instead of reading like a flaky model. An
+    unknown code still reports its number verbatim — this adds meaning, it never invents it.
+    """
+    tail = stderr.strip()[:400]
+    known = _RESOURCE_EXITS.get(returncode & 0xFFFFFFFF)
+    if known and not tail:
+        return f"(no stderr) - {known}"
+    if known and tail:
+        return f"{tail} - note: {known}"
+    return tail or "(no stderr)"
+
+
 #: The sub-agent persona delegated mode drives. Configurable because a persona is an operator choice,
 #: not a protocol fact; the default is the repo's own general-purpose agent.
 DEFAULT_DELEGATED_AGENT = "general"
@@ -269,7 +310,7 @@ class DelegatedAuthorer(Authorer):
             raise AuthoringRefusal(
                 "AUTHORING-DELEGATE-FAILED",
                 f"the delegated agent exited {proc.returncode}: "
-                f"{(proc.stderr or '').strip()[:400] or '(no stderr)'}",
+                f"{_describe_exit(proc.returncode, (proc.stderr or '').strip()[:400])}",
             )
         text, session = self._read_events(proc.stdout or "")
         self._session = session or self._session

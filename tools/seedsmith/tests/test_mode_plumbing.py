@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import subprocess
+import sys
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,6 +39,7 @@ from seedsmith.plumbing.authorer import (
     MODES,
     ApiAuthorer,
     AuthoringRefusal,
+    _describe_exit,
     resolve_authorer,
 )
 
@@ -305,6 +310,69 @@ class NoRoutableDefaultTests(unittest.TestCase):
 
 
 # --- the CLI flag must reach nested subcommands -----------------------------------------
+
+
+# --- an exit code that IS the diagnosis must say so --------------------------------------
+
+
+class ExitCodeIsDiagnosedTests(unittest.TestCase):
+    """Measured 2026-10-03 on the 904-species delegated run.
+
+    16 concurrent agents produced 35 failures, 15 of them `exited 3221226505` with NO stderr. That
+    message is true and useless: it reads like a flaky model, and it is a page-file ceiling. The
+    whole cost of that misreading was a misattribution - the failure was first blamed on "contention
+    among sub-agents" and only an earlier log read turned up the real Windows error codes.
+    """
+
+    def test_a_fail_fast_abort_is_named_rather_than_reported_as_a_number(self):
+        out = _describe_exit(0xC0000409, "")
+        self.assertIn("STATUS_FAIL_FAST_EXCEPTION", out)
+        self.assertIn("Lower the worker count", out)
+
+    def test_resource_exhaustion_codes_are_all_named(self):
+        for code in (0xC0000409, 0xC0000005, 0xC0000017, 3221225781, 3221225786):
+            with self.subTest(code=hex(code)):
+                self.assertNotEqual(_describe_exit(code, ""), "(no stderr)",
+                                    f"{hex(code)} is in the table but its description is missing")
+
+    def test_an_unknown_code_reports_the_number_and_invents_nothing(self):
+        """The table adds meaning; it must never fabricate a diagnosis."""
+        out = _describe_exit(999, "")
+        self.assertEqual(out, "(no stderr)")
+        out = _describe_exit(1, "some agent error")
+        self.assertEqual(out, "some agent error")
+
+    def test_real_stderr_is_preserved_and_the_note_appended(self):
+        out = _describe_exit(0xC0000409, "TypeError: something specific")
+        self.assertTrue(out.startswith("TypeError: something specific"))
+        self.assertIn("note:", out)
+
+    def test_the_message_actually_reaches_the_refusal(self):
+        """The table is useless if `answer()` does not call it - proven by E3 in the control."""
+        code = textwrap.dedent(
+            """
+            from seedsmith.plumbing.authorer import DelegatedAuthorer, AuthoringRefusal
+            class _Proc:
+                returncode = 0xC0000409
+                stdout = ""
+                stderr = ""
+            import seedsmith.plumbing.authorer as A
+            A.run_tool = lambda *a, **k: _Proc()
+            a = DelegatedAuthorer(model="vendor/m", agent="general")
+            try:
+                a.answer("sys", "user")
+            except AuthoringRefusal as e:
+                print("CODE", e.code)
+                print("DETAIL", e.detail)
+            """
+        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=str(Path(__file__).parent.parent),
+                              capture_output=True, text=True, timeout=180,
+                              env={**os.environ, "PYTHONPATH": "."})
+        out = proc.stdout or ""
+        self.assertIn("AUTHORING-DELEGATE-FAILED", out, f"no refusal raised: {proc.stderr[-300:]}")
+        self.assertIn("STATUS_FAIL_FAST_EXCEPTION", out,
+                      "the refusal detail does not carry the exit-code diagnosis")
 
 
 class CliModeReachesNestedTests(unittest.TestCase):
