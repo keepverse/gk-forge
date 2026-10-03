@@ -1195,7 +1195,16 @@ def _run_loop(
         # that. Written-then-scored-green is the shape of bug that reaches a commit, so the
         # refusal happens BEFORE the write: the bad entry is never persisted, and the species
         # lands in `failed` with a reason a rerun can act on.
-        element = merged.get("elementPrimary")
+        # Judge the fields that WILL BE WRITTEN, not the pass's own output. A pipeline-scoped
+        # rerun's `merged` holds ONLY that pipeline's fields - the rest arrive via merge_from
+        # INSIDE _write_species_entry. Checking `merged` alone made this guard refuse every
+        # scoped rerun of a pipeline that does not itself author elementPrimary: measured, a
+        # 111-species `identity` rerun failed 110 of them with THIS refusal, on an element that
+        # was present and valid in the entry that would have been written.
+        merge_from = existing_entry_by_id.get(species_id) if pipeline_scope else None
+        effective = {k: v for k, v in (merge_from or {}).items() if not k.startswith("_")}
+        effective.update(merged)
+        element = effective.get("elementPrimary")
         if not element_primary_is_resolvable(element):
             record.failed.append(species_id)
             _remember_failure(
@@ -1210,7 +1219,7 @@ def _run_loop(
             row, merged, dump_hash=record.dump_hash, families=families,
             anchors_dir=paths.anchors_dir, existing_by_file=existing_by_file,
             votes=species_votes, pipeline_attempts=species_attempts,
-            merge_from=existing_entry_by_id.get(species_id) if pipeline_scope else None)
+            merge_from=merge_from)
         _rewrite_index(paths.anchors_dir, existing_by_file)
 
         record.completed.append(species_id)
