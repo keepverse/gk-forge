@@ -34,6 +34,17 @@ class RunRecord:
     completed: "list[str]" = field(default_factory=list)
     failed: "list[str]" = field(default_factory=list)
     skipped: "list[str]" = field(default_factory=list)
+    #: WHY each species failed, keyed by species id. Added 2026-10-03 after a 904-species delegated
+    #: run produced 36 failures that `_finalize` printed to stderr and then discarded, leaving a
+    #: record that could say WHICH species failed and nothing about why. The cost was real: the
+    #: failures were first attributed to "contention among sub-agents", and the actual cause -
+    #: 0xC0000409 subprocess aborts alongside WinError 1455/1450, i.e. the commit ceiling - was
+    #: only recoverable from a stderr file that had been read minutes too early to contain anything.
+    #: A record that cannot say why is an obstacle to diagnosis, not a neutral ledger.
+    #:
+    #: Bounded on purpose: `MAX_FAILURE_REASONS` entries, oldest dropped, because a long run can
+    #: accumulate thousands and the first failures are usually the ones that explain the pattern.
+    failure_reasons: "dict[str, str]" = field(default_factory=dict)
     calls_made: int = 0
     started_utc: str = ""
     updated_utc: str = ""
@@ -45,6 +56,7 @@ class RunRecord:
             "dumpHash": d["dump_hash"], "selector": d["selector"],
             "promptVersions": d["prompt_versions"], "pid": d["pid"],
             "completed": d["completed"], "failed": d["failed"], "skipped": d["skipped"],
+            "failureReasons": dict(d["failure_reasons"]),
             "callsMade": d["calls_made"], "startedUtc": d["started_utc"], "updatedUtc": d["updated_utc"],
         }
 
@@ -55,7 +67,12 @@ class RunRecord:
             dump_hash=d["dumpHash"], selector=dict(d.get("selector") or {}),
             prompt_versions=dict(d.get("promptVersions") or {}), pid=d.get("pid", 0),
             completed=list(d.get("completed") or []), failed=list(d.get("failed") or []),
-            skipped=list(d.get("skipped") or []), calls_made=d.get("callsMade", 0),
+            skipped=list(d.get("skipped") or []),
+            # Absent, not defaulted to empty: every record written before this field existed has no
+            # `failureReasons`, and reading one must not invent a reason for a failure that never
+            # recorded one. An older record round-trips as "no reasons known", never as "no failures".
+            failure_reasons=dict(d.get("failureReasons") or {}),
+            calls_made=d.get("callsMade", 0),
             started_utc=d.get("startedUtc", ""), updated_utc=d.get("updatedUtc", ""))
 
 

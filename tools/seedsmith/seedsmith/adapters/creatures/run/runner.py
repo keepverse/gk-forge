@@ -42,6 +42,33 @@ from .record import (
 )
 from .selectors import resolve_selector
 
+#: How many failure reasons a run record keeps, oldest dropped. The cap lives here rather than in
+#: `plumbing/authorer.py`: it governs the RUN RECORD, not the refusal vocabulary, and reaching across
+#: into the seam for it put the import at the wrong depth — three dots resolved to
+#: `seedsmith.adapters.plumbing`, which does not exist, and four would have coupled the run machine
+#: to the authoring seam for a number about its own bookkeeping.
+MAX_FAILURE_REASONS = 200
+
+
+def _remember_failure(record, species_id: str, reason: object) -> None:
+    """Record WHY a species failed, not just which one.
+
+    Added 2026-10-03. `failed` alone could say "Peashooter" and nothing else, which is exactly how a
+    36-failure burst got written up as model flakiness when the real cause was the commit ceiling:
+    0xC0000409 aborts and WinError 1455 "paging file too small", both visible in the stderr the run
+    had already printed and neither of them kept by the record.
+
+    Module level, not a nested closure of `_run_loop`: the tests exercise it directly, and a
+    closure over `record` is neither reachable nor testable. Capped, oldest dropped, because the
+    first failures explain the pattern and an unbounded dict in a per-species write path is its
+    own problem.
+    """
+    record.failure_reasons[species_id] = str(reason)[:400]
+    if len(record.failure_reasons) > MAX_FAILURE_REASONS:
+        for stale in list(record.failure_reasons)[: len(record.failure_reasons) - MAX_FAILURE_REASONS]:
+            record.failure_reasons.pop(stale, None)
+
+
 REPO_ROOT = Path(__file__).resolve().parents[6]
 
 # `REPO_ROOT`-relative joins below ask which repository actually carries the path. A prefix-keyed
@@ -1098,6 +1125,7 @@ def _run_loop(
     def _finalize(species_id: str, row, basis, merged, err) -> None:
         if row is None:
             record.failed.append(species_id)
+            _remember_failure(record, species_id, "no row in the dump for this species id")
             write_record(record, paths.current_record_path)
             return
         if err is not None:
@@ -1107,6 +1135,7 @@ def _run_loop(
             # `_run_parallel` unexpected-exception backstop already established.
             print(f"seedsmith: {species_id}: {err}", file=sys.stderr)
             record.failed.append(species_id)
+            _remember_failure(record, species_id, err)
             record.calls_made += 1
             write_record(record, paths.current_record_path)
             if progress:

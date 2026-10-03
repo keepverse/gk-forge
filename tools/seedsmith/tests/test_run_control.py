@@ -20,6 +20,7 @@ from seedsmith.adapters.creatures.run.record import (
     write_record,
 )
 from seedsmith.adapters.creatures.run.selectors import UnknownSelectorKind, resolve_selector
+from seedsmith.adapters.creatures.run.runner import MAX_FAILURE_REASONS, _remember_failure
 
 DUMP_SPECIES = [
     {"speciesId": "peashooter", "side": "plant"},
@@ -158,6 +159,70 @@ def test_record_lists_species_ids_not_counts(tmp_path: Path):
 
 def test_missing_record_reads_as_none(tmp_path: Path):
     assert read_record(tmp_path / "nope.json") is None
+
+
+# --- a record that says WHICH species failed must also say WHY ---------------------------
+#
+# Added 2026-10-03 after a 36-failure burst was written up as model flakiness when the record could
+# not have said otherwise: the causes (0xC0000409 aborts, WinError 1455 "paging file too small")
+# were in the stderr the run printed and in no record at all.
+
+
+def _record(**kw):
+    base = dict(run_id="run-1", state="running", preflight={"dumpHash": "h"}, dump_hash="h",
+                selector={"kind": "all"}, prompt_versions={}, pid=os.getpid())
+    base.update(kw)
+    return RunRecord(**base)
+
+
+def test_a_recorded_failure_carries_its_reason_through_the_file(tmp_path: Path):
+    record = _record(completed=["peashooter"], failed=["Pickaxe_b"])
+    _remember_failure(record, "Pickaxe_b", RuntimeError("exited 0xC0000409"))
+    path = tmp_path / "run.json"
+    write_record(record, path)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["failureReasons"]["Pickaxe_b"] == "exited 0xC0000409"
+    assert read_record(path).failure_reasons["Pickaxe_b"] == "exited 0xC0000409"
+
+
+def test_a_record_written_before_this_field_existed_still_reads(tmp_path: Path):
+    """An older record has no `failureReasons`. It must round-trip, not raise and not invent one."""
+    legacy = {
+        "runId": "run-0", "state": "completed", "preflight": {}, "dumpHash": "h",
+        "selector": {"kind": "all"}, "promptVersions": {}, "pid": 1,
+        "completed": ["a"], "failed": ["b"], "skipped": [], "callsMade": 3,
+        "startedUtc": "", "updatedUtc": "",
+    }
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    read_back = read_record(path)
+    assert read_back.failed == ["b"]            # the failure is NOT lost
+    assert read_back.failure_reasons == {}      # and no reason is invented for it
+
+
+def test_failure_reasons_are_capped_and_the_OLDEST_are_dropped():
+    """Bounded, because this is written on a per-species path; and oldest-dropped, because the
+    first failures are the ones that explain a pattern."""
+    record = _record()
+    for i in range(MAX_FAILURE_REASONS + 60):
+        _remember_failure(record, f"sp{i:03d}", "boom")
+    assert len(record.failure_reasons) == MAX_FAILURE_REASONS
+    # With N+60 recorded against a cap of N, exactly the first 60 go: the oldest survive from sp060.
+    # Asserted as a contiguous window rather than by two spot checks, because the two checks I wrote
+    # first were off by one on the boundary - sp059 is dropped too, which the dictionary above shows.
+    assert "sp000" not in record.failure_reasons, "the earliest failures must be the ones dropped"
+    assert "sp059" not in record.failure_reasons, "and the drop must reach the whole overflow"
+    assert "sp060" in record.failure_reasons, "the oldest surviving reason is the first retained one"
+    assert f"sp{MAX_FAILURE_REASONS + 59:03d}" in record.failure_reasons
+    assert sorted(record.failure_reasons) == sorted(
+        f"sp{i:03d}" for i in range(60, 60 + MAX_FAILURE_REASONS))
+
+
+def test_a_reason_is_truncated_so_one_bad_error_cannot_bloat_the_record():
+    record = _record()
+    _remember_failure(record, "x", "e" * 5000)
+    assert len(record.failure_reasons["x"]) == 400
 
 
 # --- selectors.py: all eight, zero model calls ----------------------------------------------
