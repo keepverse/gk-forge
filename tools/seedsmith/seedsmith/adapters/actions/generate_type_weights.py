@@ -132,7 +132,14 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, role_lean_path: Path = ROLE
 
     if write:
         actions_root.mkdir(parents=True, exist_ok=True)
-        (actions_root / "type-weights.json").write_text(_canonical_dump(out_doc), encoding="utf-8")
+        # `newline="\n"` is the house convention for a byte-reproducible artifact, and this writer was
+        # one of the 65 that never got it. Measured 2026-10-04: regenerating on Windows wrote 889,342
+        # bytes with 39,596 CRLFs against a committed blob of 849,746 bytes - the same content, the
+        # other line endings - so `test_a_fresh_publish_reproduces_the_committed_registry` compared
+        # bytes and failed on a difference that carries no meaning. Matches emit.py and
+        # adapters/items/setgen/seedfile.py, which already pass it.
+        (actions_root / "type-weights.json").write_text(
+            _canonical_dump(out_doc), encoding="utf-8", newline="\n")
 
     species_count = sum(1 for e in entries if e.scope == "species")
     family_count = sum(1 for e in entries if e.scope == "family")
