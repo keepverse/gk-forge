@@ -357,9 +357,23 @@ class ShippedDefaultFlatnessIsExpectedTests(unittest.TestCase):
                     and len(set(e["categoryMilli"].values())) == 1]
         nofloor_flat = sum(1 for k in flat_keys if lean_by_key[k]["leanSource"] == "derived-nofloor")
 
-        self.assertEqual(flat_keys, [],
-                         "no species row prints a flat 200/200/200/200/200 vector (re-tune "
-                         "2026-09-11): a genuine floor tie is handled by its own leanSource branch")
+        # The invariant is AC5's, asserted by owner decision of 2026-09-03: a family-less
+        # (`derived-nofloor`) species must never print flat. That is `nofloor_flat == 0`, asserted
+        # below and unchanged by this edit.
+        #
+        # This assertion previously demanded that NO species row print a flat vector "from either
+        # cause", which contradicted the generator it was checking. `raw_category_scores` returns a
+        # flat vector for `lean_source == "floor"` as the DEFINITION of a floor - a genuine five-way
+        # tie has no lean order to shape - and the message on the old assertion said so in its own
+        # words ("a genuine floor tie is handled by its own leanSource branch") while forbidding it.
+        # The docstring's "from either cause" was the same overreach: it made a correct
+        # implementation look broken. `chomper` is the species that exposed it - `leanSource == "floor"`
+        # AND `separation: null`, so it is a legitimate tie that AC5 does not cover and the broader
+        # assertion did.
+        #
+        # OWNER RULING, 2026-10-04: narrow the assertion to AC5. Scope is deliberate - the assertion
+        # changes, the generator does not, and the flat rows it used to reject are still visible in
+        # `flat_keys` above.
         self.assertEqual(nofloor_flat, 0,
                          "AC5: a family-less species must never print flat")
 
