@@ -15,7 +15,6 @@ authorer, or through a monkeypatched `resolve_authorer`, never by launching anyt
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 import subprocess
 import sys
@@ -40,12 +39,20 @@ from seedsmith.plumbing.authorer import (
     ApiAuthorer,
     AuthoringRefusal,
     _describe_exit,
+    _describe_oserror,
     resolve_authorer,
 )
 
 
-class _Fake(llm_caller.LlmCallerConfig if False else object):  # noqa: N801 - test double
-    """Stands in for an Authorer. Records what it was asked, answers a fixed string."""
+class _Fake:  # noqa: N801 - a test double, deliberately not an Authorer subclass
+    """Stands in for an Authorer. Records what it was asked, answers a fixed string.
+
+    Not a subclass on purpose: `resolve_authorer` returns real `ApiAuthorer`/`DelegatedAuthorer`
+    objects and callers only ever need `.answer(...)`, so inheriting would assert a relationship
+    that does not hold. An earlier version of this line read
+    `class _Fake(llm_caller.LlmCallerConfig if False else object)` — the conditional meant nothing
+    could ever be selected, and it was dead code in a test file.
+    """
 
     mode = "fake"
 
@@ -221,16 +228,25 @@ class NoImplicitTriggerTests(unittest.TestCase):
     def test_an_empty_config_object_is_api(self):
         """An unset mode takes the safe direction (api), never the corpus-editing one.
 
-        The endpoint here is deliberately unroutable: `LlmCallerConfig`'s built-in default is a
-        REAL local address, and a test that leans on the default will quietly call a live model
-        instead of testing anything. That is not hypothetical - it happened while these tests were
-        being written, and is why every negative test here pins its own dead endpoint.
+        The endpoint is pinned dead because `LlmCallerConfig`'s endpoint default is now `""` - which
+        refuses with AUTHORING-NO-ENDPOINT before any transport is chosen, so this test is really
+        about the MODE, and pinning the endpoint keeps the refusal independent of that. An earlier
+        version of this docstring justified the pinning by the default being a REAL routable
+        address; that was true when written and stopped being true in the same session, and a
+        comment stating a deleted fact as current is its own kind of wrong.
         """
-        self.assertEqual(dataclasses.replace(LlmCallerConfig(), mode="").mode, "")
         with mock.patch.object(authorer_mod, "resolve_authorer") as seam:
-            with self.assertRaises(Exception):
+            # An unset mode must not select a transport. What it DOES here is attempt the API path
+            # against a dead endpoint and fail there — so the assertion is the absence of the seam
+            # call, not a particular exception. An earlier version of this test expected
+            # AUTHORING-NO-ENDPOINT, which was wrong twice over: that refusal needs an EMPTY endpoint,
+            # and this test pins a non-empty one. Asserting a code the code path cannot produce is
+            # how a test ends up pinning an accident.
+            with self.assertRaises(Exception) as ctx:
                 call_model("sys", "user",
                            config=LlmCallerConfig(mode="", endpoint="http://127.0.0.1:1/x"))
+        self.assertNotIsInstance(ctx.exception, AuthoringRefusal,
+                                 "an unset mode must not be refused as an unknown mode either")
         seam.assert_not_called()
 
 
@@ -335,6 +351,52 @@ class ExitCodeIsDiagnosedTests(unittest.TestCase):
                 self.assertNotEqual(_describe_exit(code, ""), "(no stderr)",
                                     f"{hex(code)} is in the table but its description is missing")
 
+    def test_a_resource_winerror_is_named_and_the_unknown_one_is_not(self):
+        """WinError 1455/1450 arrived as bare OSError strings, which is the whole reason for this.
+
+        Measured on the real run: `seedsmith: Pickaxe_a: [WinError 1455] The paging file is too
+        small for this operation to complete`. A table of subprocess EXIT codes cannot catch these -
+        they are exceptions raised while spawning, not statuses returned by a finished process.
+        """
+        for code, needle in ((1455, "paging file"), (1450, "commit"), (8, "memory")):
+            with self.subTest(code=code):
+                self.assertIn(needle, _describe_oserror(OSError(code, "boom")).lower())
+
+    def test_an_unknown_winerror_is_passed_through_unchanged(self):
+        """The table adds meaning; it must never fabricate a diagnosis it has no evidence for."""
+        exc = OSError(9999, "totally unrelated")
+        self.assertEqual(_describe_oserror(exc), str(exc).strip())
+
+    def test_a_resource_exhaustion_on_spawn_is_a_named_refusal_not_a_bare_OSError(self):
+        """The end-to-end shape: a WinError during the spawn becomes AUTHORING-DELEGATE-EXHAUSTED.
+
+        Without this, the exception escapes `answer()` and the run record stores the bare string,
+        which is what made the 36-failure burst unattributable hours after the fact.
+        """
+        code = textwrap.dedent(
+            """
+            import seedsmith.plumbing.authorer as A
+            from seedsmith.plumbing.authorer import DelegatedAuthorer, AuthoringRefusal
+            def boom(*a, **k):
+                raise OSError(1455, "The paging file is too small for this operation to complete")
+            A.run_tool = boom
+            a = DelegatedAuthorer(model="vendor/m", agent="general")
+            try:
+                a.answer("sys", "user")
+                print("OUTCOME no-refusal")
+            except AuthoringRefusal as e:
+                print("OUTCOME", e.code, "paging" in e.detail.lower())
+            except OSError:
+                print("OUTCOME raw-OSError")
+            """
+        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=str(Path(__file__).parent.parent),
+                              capture_output=True, text=True, timeout=180,
+                              env={**os.environ, "PYTHONPATH": "."})
+        out = proc.stdout.strip()
+        self.assertIn("AUTHORING-DELEGATE-EXHAUSTED", out, f"got: {out!r} {proc.stderr[-200:]}")
+        self.assertIn("True", out, "the refusal detail must say what ran out")
+
     def test_an_unknown_code_reports_the_number_and_invents_nothing(self):
         """The table adds meaning; it must never fabricate a diagnosis."""
         out = _describe_exit(999, "")
@@ -408,7 +470,6 @@ class CliModeReachesNestedTests(unittest.TestCase):
         cli_mod.build_parser = lambda: _Parser()
         old_env = _os.environ.pop("SEEDSMITH_LLM_MODE", None)
         exported: dict = {}
-        real_setitem = _os.environ.__class__.__setitem__
         try:
             rc = cli_mod.main([])
             exported["mode"] = _os.environ.get("SEEDSMITH_LLM_MODE")

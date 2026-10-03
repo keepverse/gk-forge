@@ -94,9 +94,47 @@ _RESOURCE_EXITS: "dict[int, str]" = {
         "the OS refused to allocate memory (NT STATUS_NO_MEMORY) — out of commit or page file. "
         "Lower the worker count."
     ),
-    3221225781: "the Windows loader could not find a DLL (ERROR_MOD_NOT_FOUND).",
-    3221225786: "the Windows loader could not open a DLL (ERROR_PROC_NOT_FOUND).",
+    3221225781: "the Windows loader could not find a DLL (NT STATUS_DLL_NOT_FOUND).",
+    3221225786: "a DLL was found but the named export was missing (NT STATUS_ORDINAL_NOT_FOUND).",
 }
+
+#: Windows WinError codes that mean the MACHINE ran out, as distinct from the NTSTATUS exit codes
+#: above. These reach us as `OSError` from the launcher rather than as a subprocess exit code, so a
+#: table of exit codes cannot catch them - and they were the loudest part of the measured burst:
+#: `seedsmith: Pickaxe_a: [WinError 1455] The paging file is too small for this operation to complete`
+#: and `[WinError 1450] Insufficient system resources exist to complete the requested service`. Both
+#: arrived as bare Python exceptions from `run_tool`, which is exactly the failure this diagnosis
+#: exists to prevent: the page file, not the model.
+_RESOURCE_WINERRORS: "dict[int, str]" = {
+    1450: (
+        "Windows could not allocate the resources for this operation (ERROR_NOT_ENOUGH_MEMORY). Out "
+        "of commit or page file - lower the worker count."
+    ),
+    1455: (
+        "The paging file is too small for this operation to complete (ERROR_COMMITMENT_LIMIT). The "
+        "machine ran out of commit, not the model out of ideas - lower the worker count."
+    ),
+    8: "the system could not allocate the memory for the process (ERROR_NOT_ENOUGH_MEMORY).",
+}
+
+
+def _describe_oserror(exc: BaseException) -> str:
+    """Name a resource-exhaustion WinError, or say plainly that nothing is known about it.
+
+    Separate from `_describe_exit` because these arrive as exceptions rather than exit codes and a
+    launcher's `OSError` carries the code in `winerror`/`errno`. An unrecognised code returns the
+    original text unchanged, so this never manufactures a diagnosis it does not have.
+    """
+    code = getattr(exc, "winerror", None)
+    if code is None:
+        code = getattr(exc, "errno", None)
+    known = _RESOURCE_WINERRORS.get(code) if isinstance(code, int) else None
+    text = str(exc).strip()
+    if known and text:
+        return f"{text} - {known}"
+    if known:
+        return f"(no message) - {known}"
+    return text
 
 
 def _describe_exit(returncode: int, stderr: str) -> str:
@@ -305,6 +343,16 @@ class DelegatedAuthorer(Authorer):
             raise AuthoringRefusal(
                 "AUTHORING-DELEGATE-TIMEOUT",
                 f"the delegated agent did not answer within {self._timeout:.0f}s: {exc}",
+            ) from exc
+        except OSError as exc:
+            # run_tool turns a *missing* executable into `refusal`, but a resource-exhaustion
+            # WinError during the spawn is a different thing and used to escape `answer()` as a bare
+            # OSError. It reached the run record as the bare string "[WinError 1455] The paging file is
+            # too small for this operation to complete" — true, and no more actionable than a number.
+            # Named here so the page file is stated as the cause and the remedy is in the message.
+            raise AuthoringRefusal(
+                "AUTHORING-DELEGATE-EXHAUSTED",
+                f"the delegated agent could not be started: {_describe_oserror(exc)}",
             ) from exc
         if proc.returncode != 0:
             raise AuthoringRefusal(
