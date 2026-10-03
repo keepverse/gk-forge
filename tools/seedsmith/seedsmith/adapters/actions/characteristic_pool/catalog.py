@@ -12,7 +12,17 @@ from pathlib import Path
 
 from ...creatures.family.consolidate import FamilyCandidateInput, consolidate
 from .curation import curated_traits
-from .ladders import RARITY_LADDER, RARITY_ORDINAL, TRAIT_POOL
+from .ladders import (
+    RARITY_LADDER,
+    RARITY_ORDINAL,
+    TRAIT_POOL,
+)
+
+# The family-label normalisation now lives in the shared leaf, because the creatures runner's
+# fail-closed guard has to judge family labels exactly as this consumer does. Restating the regex
+# on either side would be two implementations free to drift from each other - measured 2026-10-04,
+# when 36 Chinese-language labels across 13 entries were written and every one would be refused here.
+from seedsmith.ladders import normalize_family_key
 
 __all__ = [
     "SpeciesRow", "RARITY_LADDER", "TRAIT_POOL", "load_catalog", "load_live_records",
@@ -193,14 +203,6 @@ def _live_row(record: dict[str, object]) -> SpeciesRow:
         rarity_ordinal=RARITY_ORDINAL[rarity_id],
         traits=traits,
     )
-
-
-def normalize_family_key(label: str) -> str:
-    """Turn a live descriptive family label into a stable action namespace key."""
-    key = re.sub(r"[^a-z0-9]+", "-", label.strip().lower()).strip("-")
-    if not key:
-        raise ValueError(f"family label {label!r} normalizes to an empty key")
-    return key
 
 
 def derive_live_family_assignments(root: Path = CATALOG_PATH) -> "dict[str, list[str]]":

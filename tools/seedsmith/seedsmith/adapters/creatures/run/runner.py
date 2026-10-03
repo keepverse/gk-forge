@@ -1204,13 +1204,12 @@ def _run_loop(
         merge_from = existing_entry_by_id.get(species_id) if pipeline_scope else None
         effective = {k: v for k, v in (merge_from or {}).items() if not k.startswith("_")}
         effective.update(merged)
-        element = effective.get("elementPrimary")
-        if not element_primary_is_resolvable(element):
+        violations = seed_consumer_violations(effective)
+        if violations:
             record.failed.append(species_id)
             _remember_failure(
                 record, species_id,
-                f"elementPrimary={element!r} is not one of "
-                f"{sorted(VALID_ELEMENT_PRIMARY)}; not written")
+                "; ".join(violations) + "; not written")
             write_record(record, paths.current_record_path)
             if progress:
                 progress(species_id, len(record.completed) + len(record.failed), total)

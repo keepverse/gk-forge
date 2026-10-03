@@ -87,11 +87,14 @@ def test_the_refusal_marks_the_species_failed_with_a_reason():
     """The refusal has to be ACTIONABLE: a rerun retries `failed`, and a species that never resolves
     must be visible. Appending to `completed` while refusing to write would be worse than either."""
     src = RUNNER.read_text(encoding="utf-8")
-    guard_at = src.index("if not element_primary_is_resolvable(element):")
+    guard_at = src.index("if violations:")
     window = src[guard_at: src.index("_write_species_entry(", guard_at)]
     assert "record.failed.append(species_id)" in window, window
     assert "_remember_failure(" in window, window
     assert "record.completed.append" not in window, window
+    # The reason must name WHAT was wrong, not a fixed string - with ten guards behind it, a message
+    # that only ever said "elementPrimary" would misreport nine of them.
+    assert '"; ".join(violations)' in window, window
 
 
 def test_the_refusal_judges_the_MERGED_fields_not_the_pass_output():
@@ -115,9 +118,9 @@ def test_the_refusal_judges_the_MERGED_fields_not_the_pass_output():
 
     assert "effective = {k: v for k, v in (merge_from or {})" in window, (
         "the guard must build the effective fields from merge_from")
-    assert 'element = effective.get("elementPrimary")' in window, (
+    assert "violations = seed_consumer_violations(effective)" in window, (
         "the guard must judge the effective fields, not the pass's own output")
-    assert 'element = merged.get("elementPrimary")' not in window, (
+    assert "seed_consumer_violations(merged)" not in window, (
         "the guard regressed to judging the pre-merge fields")
     # And it must reuse the value the write already computed, not compute it a second time.
     assert "merge_from=merge_from)" in src, (

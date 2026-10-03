@@ -384,7 +384,20 @@ def _brief_identity(lore: SpeciesLore, context: dict) -> str:
         "vocabulary, distinct from family), which of the seven known variant forms it could "
         "plausibly have (variants — name WHICH exist, not how many will be offered), and how "
         "special/rare it is (rarity, the ten-rung botanical ladder — NOT how dangerous it is; "
-        "that is a separate axis).\n\n" + _lore_block(lore)
+        "that is a separate axis).\n\n"
+           # The family label is not free text. `normalize_family_key` in
+           # adapters/actions/characteristic_pool/catalog.py turns it into an action namespace key by
+           # collapsing every run of characters outside [a-z0-9] to a hyphen, and the consumer raises
+           # on a label that normalizes to nothing - so a purely non-Latin label is refused at load.
+           # Measured 2026-10-04: an identity run over the 334 species that carried no family produced
+           # 36 Chinese-language labels across 13 entries, every one of which the consumer refuses.
+           # "Open vocabulary" has to mean open, but in the corpus's own language - and the generator
+           # is what owes that, not the emitted rows.
+           "Write every family label in English, each containing at least one ASCII letter or "
+           "digit: the label becomes an action namespace key by lowercasing and collapsing every run "
+           "of non-alphanumeric characters to a hyphen, so a label with no ASCII letters normalizes "
+           "to nothing and the species cannot be loaded at all. Short concrete tags work best - "
+           "\"explosive-fungus\", \"armoured-vine\".\n\n" + _lore_block(lore)
         + f"\n\nrarity options: {', '.join(context.get('order', RARITY))}. "
           f"variants options: {', '.join(VARIANTS)}."
     )

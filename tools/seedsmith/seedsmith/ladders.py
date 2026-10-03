@@ -23,6 +23,8 @@ anyway. No seedsmith-internal imports here, so this leaf can never join an impor
 """
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 
@@ -80,3 +82,19 @@ def threat_band() -> "tuple[str, ...]":
 #: The declaring reads, loaded once. Import these names — never re-transcribe the ids.
 RARITY_LADDER: "tuple[str, ...]" = rarity_ladder()
 THREAT_BAND: "tuple[str, ...]" = threat_band()
+
+
+def normalize_family_key(label: str) -> str:
+    """Turn a descriptive family label into a stable action namespace key.
+
+    Lives in this shared leaf rather than in the actions characteristic_pool because the
+    creatures runner must judge family labels exactly as that pool does. Restating the regex
+    in the runner would be a second implementation free to drift from the consumer it exists to
+    satisfy - the same shape as a parser validated only against itself. Moved here so both
+    sides read one definition, measured 2026-10-04 when 36 Chinese-language labels across 13
+    entries were written and every one would have been refused at load.
+    """
+    key = re.sub(r"[^a-z0-9]+", "-", label.strip().lower()).strip("-")
+    if not key:
+        raise ValueError(f"family label {label!r} normalizes to an empty key")
+    return key

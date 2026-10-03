@@ -10,6 +10,7 @@ from typing import Any
 
 from .descriptions import DESCRIPTIONS
 from seedsmith.ladders import RARITY_LADDER as _RARITY_LADDER
+from seedsmith.ladders import normalize_family_key
 from seedsmith.ladders import THREAT_BAND as _THREAT_BAND
 
 # Real, shipped vocabularies — never invented here. Sources:
@@ -184,3 +185,83 @@ def build_anchor_schema() -> dict:
         "required": sorted(properties.keys()),
         "additionalProperties": False,
     }
+
+def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
+    """Every shape `characteristic_pool.catalog` refuses on the live-seed load path, as one
+    predicate.
+
+    Transcribed from that module's own raise statements, which is the only place the contract
+    is knowable from. Named by GUARD rather than by line, deliberately: an earlier version of this
+    docstring carried the line numbers and they were stale within the same edit that added them,
+    because moving one import in catalog.py shifted every one of them. A citation that rots on an
+    unrelated edit is not evidence of coverage, and this repo already has a guard for that class of
+    drift; the fix is to not write the citation.
+
+        species record must be an object    speciesId present
+        speciesId unique                     dir non-empty
+        speciesId is a string               elementPrimary in six
+        elementSecondary in six              rarity in the ladder
+        traits is a list                     a family label normalizes
+        family is a list                    family has a live label
+
+    The list is this long because the corpus was repaired four times against one guard at a
+    time - 44 entries with an unresolvable elementPrimary, 111 with a rarity outside the
+    ladder, 9 with a string where a list belongs, 338 with no family at all - and each round was
+    followed by a suite run that surfaced the NEXT guard in the same file. A runner checking
+    one field and a validator enumerating one field are the same mistake at two layers.
+
+    Returns human-readable violations; an empty tuple means the entry is loadable. The family
+    branch calls the shared leaf's `normalize_family_key` so this check cannot drift from the
+    consumer's own normalisation.
+    """
+    out: "list[str]" = []
+    species_id = fields.get("speciesId")
+    if species_id is None:
+        out.append("speciesId is absent")
+        return tuple(out)
+    if not isinstance(species_id, str):
+        out.append(f"speciesId is {type(species_id).__name__}, not a string")
+        return tuple(out)
+
+    primary = fields.get("elementPrimary")
+    if (primary.lower() if isinstance(primary, str) else "") not in ELEMENTS:
+        out.append(f"elementPrimary {primary!r} is not one of {list(ELEMENTS)}")
+
+    secondary = fields.get("elementSecondary")
+    secondary_id = (secondary.lower()
+                    if isinstance(secondary, str) and secondary.lower() != "none" else None)
+    # Only the literal 'none' (or an absent field) is exempt - an EMPTY string is not, which
+    # is why an entry carrying '' reached the loader and raised. Mirrors L165 exactly.
+    if secondary_id is not None and secondary_id not in ELEMENTS:
+        out.append(f"elementSecondary {secondary!r} is not one of {list(ELEMENTS)}")
+
+    rarity = fields.get("rarity")
+    if (rarity.lower() if isinstance(rarity, str) else "") not in _RARITY_LADDER:
+        out.append(f"rarity {rarity!r} is not one of the ten rungs")
+
+    if not isinstance(fields.get("traits", []), list):
+        out.append(f"traits is {type(fields.get('traits')).__name__}, not a list")
+
+    families = fields.get("family", [])
+    if isinstance(families, str):
+        families = [families]
+    if not isinstance(families, list):
+        out.append(f"family is {type(fields.get('family')).__name__}, not a list")
+    else:
+        labels = sorted({str(label).strip() for label in families if str(label).strip()})
+        if not labels:
+            out.append("family has no live label")
+        else:
+            # normalize_family_key RAISES on a label that normalizes to nothing rather than returning
+            # an empty key - that is the consumer's own contract, and it is the definition this check
+            # has to agree with. Catching the raise keeps ONE normalisation in the tree; recomputing
+            # the key here would be the second implementation that could drift from the consumer.
+            dead = []
+            for label in labels:
+                try:
+                    normalize_family_key(label)
+                except ValueError:
+                    dead.append(label)
+            if dead:
+                out.append(f"family label(s) {dead} normalize to an empty key")
+    return tuple(out)
