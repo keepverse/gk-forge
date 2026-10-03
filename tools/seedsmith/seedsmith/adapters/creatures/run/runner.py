@@ -28,7 +28,10 @@ from ..anchor.derive import (
 )
 from ..anchor.emit import build_index, entry_for, render_index, write_family_file
 from ..anchor.prompts import PIPELINES, SpeciesLore, threat_audit_spec_for_basis
-from ..anchor.schema import ELEMENTS  # reused, never re-transcribed
+from ..anchor.schema import (  # reused, never re-transcribed
+    ELEMENTS,
+    seed_consumer_violations,
+)
 from ..anchor.provenance import PROMPT_VERSIONS, AnchorProvenance, ReleadProvenance
 from ..dump_ctx import load_creature_dump_ctx
 from ..power.measured import load_measured_base_stats, resolves_natively
