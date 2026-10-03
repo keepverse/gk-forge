@@ -28,6 +28,7 @@ from ..anchor.derive import (
 )
 from ..anchor.emit import build_index, entry_for, render_index, write_family_file
 from ..anchor.prompts import PIPELINES, SpeciesLore, threat_audit_spec_for_basis
+from ..anchor.schema import ELEMENTS  # reused, never re-transcribed
 from ..anchor.provenance import PROMPT_VERSIONS, AnchorProvenance, ReleadProvenance
 from ..dump_ctx import load_creature_dump_ctx
 from ..power.measured import load_measured_base_stats, resolves_natively
@@ -78,6 +79,26 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # `content_root()` would RAISE.
 
 from ....workspace_roots import owning_base, seed_root  # noqa: E402
+
+
+#: The six element ids ActorElementTypes.cs declares. REUSED from anchor.schema rather than
+#: written out again: this package already spells the same six ids in eight modules
+#: (schema, vocab, pool, tuning, catalog, derive, registries, __init__), and every extra
+#: copy is another thing that can drift from the C# enum it mirrors.
+VALID_ELEMENT_PRIMARY = frozenset(ELEMENTS)
+
+
+def element_primary_is_resolvable(value: object) -> bool:
+    """Whether an authored elementPrimary is one of the declared ids, and may be written.
+
+    Split out of the completion path so it is testable with no model, no network and no run
+    harness - the same reasoning that made the two-mode seam testable. The comparison is
+    case-insensitive because the consumer lowercases before validating
+    (characteristic_pool/catalog.py:159-163), so `FIRE` resolves where `fire` does.
+    """
+    return isinstance(value, str) and value.strip().lower() in VALID_ELEMENT_PRIMARY
+
+
 
 
 def _owned(relative: str) -> "Path":
@@ -1167,6 +1188,24 @@ def _run_loop(
         # "unsure"; a scoped rerun's own partial `merged` is corrected by the merge path below.
         merged["rank"] = derive_rank(merged.get("threatBand"), merged.get("rarity"))
 
+        # FAIL CLOSED on a required enum this pipeline could not resolve. Measured live
+        # 2026-10-03: a run marked 42 of 904 species `completed` while their entries carried an
+        # elementPrimary outside the six declared ids - 37 absent-or-empty, 5 the literal
+        # "unresolved" - and characteristic_pool's `_live_row` raises ValueError on exactly
+        # that. Written-then-scored-green is the shape of bug that reaches a commit, so the
+        # refusal happens BEFORE the write: the bad entry is never persisted, and the species
+        # lands in `failed` with a reason a rerun can act on.
+        element = merged.get("elementPrimary")
+        if not element_primary_is_resolvable(element):
+            record.failed.append(species_id)
+            _remember_failure(
+                record, species_id,
+                f"elementPrimary={element!r} is not one of "
+                f"{sorted(VALID_ELEMENT_PRIMARY)}; not written")
+            write_record(record, paths.current_record_path)
+            if progress:
+                progress(species_id, len(record.completed) + len(record.failed), total)
+            return
         _write_species_entry(
             row, merged, dump_hash=record.dump_hash, families=families,
             anchors_dir=paths.anchors_dir, existing_by_file=existing_by_file,
