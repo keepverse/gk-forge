@@ -734,7 +734,13 @@ def fix_unresolved(*, paths: RunPaths = RunPaths(), dry_run: bool = False) -> "l
             # Same recompute `_finalize` runs at classification time (line ~758) — posture/pure
             # are functions of aptitudePrimary and must not go stale now that it changed.
             updates["posture"] = derive_posture(after_aptitude)
-            updates["pure"] = derive_pure(after_aptitude, entry.get("aptitudeSecondary", "none"))
+            # Read the SECONDARY from `updates` first, not from `entry`: this pass may have just
+            # filled an absent `aptitudeSecondary` above, and `entry` still lacks the key. The two
+            # happen to agree today only because the declared null and the reader's default are both
+            # `"none"` — which is exactly the kind of coincidence that rots the day one of them moves.
+            updates["pure"] = derive_pure(
+                after_aptitude,
+                updates.get("aptitudeSecondary", entry.get("aptitudeSecondary", "none")))
 
         if threat_was_fixed or rarity_was_fixed:
             # Same recompute `_finalize` runs at classification time, one field over from
