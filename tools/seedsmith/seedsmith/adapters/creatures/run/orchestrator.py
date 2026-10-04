@@ -91,7 +91,7 @@ def _declared_null(spec: PipelineSpec, attribute: str) -> "str | None":
 
 
 def _fill_unanswered(draft: "dict[str, Any]", spec: PipelineSpec) -> "dict[str, Any]":
-    """Every declared attribute the draft omitted is written down, not left absent.
+    """Every declared STRING attribute the draft omitted is written down, not left absent.
 
     WHICH spelling depends on whether the pipeline's OWN schema declares a null for that field, and
     that distinction is load-bearing rather than cosmetic:
@@ -110,13 +110,21 @@ def _fill_unanswered(draft: "dict[str, Any]", spec: PipelineSpec) -> "dict[str, 
     of 134 `kit-shape` reruns failed exactly that way. A second field that has a legal null must not
     be able to block the field whose own pipeline owns it.
 
-    The keys it adds are the pipeline's OWN declared `attributes`, so it cannot invent a field and
-    cannot drift from the spec: rename an attribute and this follows. `blocked` is untouched (the
-    merge loop drops it), as is any attribute the draft did answer.
+    **Only STRING-typed attributes are filled.** `deployment` also declares `acquisition`, an ARRAY
+    of flags with `minItems: 1` — and filling it would mean writing the string `"unresolved"` into a
+    field the schema and both consumers expect to be a list, which is strictly worse than leaving it
+    absent. `StrArray`'s silent empty default is the honest reading of "no answer" for an array, and
+    the owning pipeline's rerun is what replaces it with real flags. Caught by reading the schema
+    type, not by a list of array-valued attributes here, so a newly array-typed attribute is skipped
+    automatically.
     """
     for attribute in spec.attributes:
-        if attribute not in draft:
-            draft[attribute] = _declared_null(spec, attribute) or NO_ANSWER
+        if attribute in draft:
+            continue
+        prop = ((spec.schema or {}).get("properties") or {}).get(attribute) or {}
+        if prop.get("type") != "string":
+            continue
+        draft[attribute] = _declared_null(spec, attribute) or NO_ANSWER
     return draft
 
 

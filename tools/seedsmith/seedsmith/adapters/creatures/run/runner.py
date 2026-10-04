@@ -325,6 +325,25 @@ class RunPaths:
         return self.runs_dir / PAUSE_SENTINEL_NAME
 
 
+def _violation_names_any(violation: str, fields: "set[str]") -> bool:
+    """Whether a predicate violation is ABOUT one of `fields`.
+
+    The predicates return human-readable strings, not structured findings, and changing that shape
+    would break every caller that joins them into a failure reason. So this matches on the two forms
+    the predicates actually emit — a presence guard names its key QUOTED
+    (`anchor: missing or non-string 'reach'`) and a membership guard leads with the field name
+    followed by a space (`attackTempo '' has no entry in creature-shape.v1.json`). Both are matched
+    on a WORD boundary so `elementPrimary` can never match an `elementSecondary` violation.
+
+    Asserted against the predicates' real output in `test_run_element_guard.py`, because a guard
+    that silently matches nothing would stop blocking anything and look green.
+    """
+    for field in fields:
+        if f"'{field}'" in violation or violation.startswith(f"{field} "):
+            return True
+    return False
+
+
 def _write_species_entry(
     row: Mapping[str, Any], merged_fields: "dict[str, Any]", *, dump_hash: str,
     families: "dict[str, list[str]]", anchors_dir: Path,
@@ -1264,11 +1283,36 @@ def _run_loop(
         # stay independently testable, and merging them would widen consumer 1's refuse set to
         # fields it does not read.
         violations += csharp_anchor_consumer_violations(effective)
-        if violations:
+        # WHICH violations BLOCK this write. A full run authors every field, so any violation is
+        # this pass's own and every one blocks — unchanged behaviour, and what the test above
+        # pins.
+        #
+        # A pipeline-scoped rerun authors ONLY its own attributes, and refusing it over a defect in
+        # a field it never touched makes corpus repair deadlock against itself. Measured
+        # 2026-10-04, three separate deadlocks from this one rule, each ending a repair round early:
+        # `kit-shape` refused for a still-absent `aptitudeSecondary` while the secondary pipeline was
+        # refused for the still-absent `reach` (71 of 134 `kit-shape` reruns); and finally
+        # `deployMode: ""` blocking `kit-shape` while `attackTempo: ""` blocked `deployment`, seven
+        # species that no rerun of anything could ever write. A violation in a field this pass did
+        # not author is not this pass's to refuse on — refusing does not repair it, it only stops
+        # progress — so it is reported on stderr, following the per-species failure precedent in
+        # `_run_parallel`, and the write proceeds.
+        #
+        # Whole-entry conformance is not lost by this: it is the CORPUS gate's job, not the write
+        # path's. `csharp_anchor_corpus_violations` checks a whole document in one pass and is what a
+        # validator or CI runs; the per-species guard exists to stop a pass from persisting its OWN
+        # bad output, which is exactly what this still refuses.
+        own_attributes = set(PIPELINES[pipeline_scope].attributes) if pipeline_scope else None
+        blocking = violations if own_attributes is None else tuple(
+            v for v in violations if _violation_names_any(v, own_attributes))
+        if violations and not blocking:
+            print(f"seedsmith: {species_id}: writing with a defect this pipeline does not own: "
+                  + "; ".join(violations), file=sys.stderr)
+        if blocking:
             record.failed.append(species_id)
             _remember_failure(
                 record, species_id,
-                "; ".join(violations) + "; not written")
+                "; ".join(blocking) + "; not written")
             write_record(record, paths.current_record_path)
             if progress:
                 progress(species_id, len(record.completed) + len(record.failed), total)

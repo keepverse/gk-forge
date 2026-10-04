@@ -57,6 +57,7 @@ CONSUMER_GUARDS = (
     "deployMode '{v}' is not a known CreatureDeployMode",
     "acquisition '{v}' is not a known CreatureAcquisition",
     "rank '{v}' is not a known CreatureRank",
+    "species has no acquisition flags",
 )
 
 #: An entry that survives every guard. Anything a case adds to this must be the ONLY defect in it.
@@ -216,14 +217,28 @@ def test_acquisition_none_is_excluded_on_purpose_and_says_why():
     assert violations(fields(acquisition=["Summonable, EventOnly"])) != ()
 
 
-def test_a_non_array_or_absent_acquisition_is_NEVER_a_violation():
-    """`StrArray` silently defaults `variants`/`acquisition`/`traits` to an empty list and never
-    raises, so a missing `acquisition` is invisible to these two stages (304 real entries have none
-    today). Inventing a guard here would claim a refusal this consumer does not make."""
-    assert violations(fields(acquisition=None)) == ()
-    assert violations(fields(acquisition="Summonable")) == ()
-    assert violations(fields(acquisition=[])) == ()
-    assert violations(fields(variants=None, traits="x")) == ()
+def test_a_non_array_or_absent_acquisition_is_refused_for_STAGE_4_not_because_the_reader_raises():
+    """The one guard the two readers do not raise. Measured by running the tool: after the anchor
+    load cleared all 904 entries, `CreatureRecipeReconcileInput` failed one stage further out with
+    `Species 'blackhorse' has no acquisition flags.` — `StrArray` had silently defaulted the absent
+    key to an empty list, and `CreatureSpeciesCatalog.Validate` refused it.
+
+    So an absent/empty `acquisition` IS a refusal of this consumer, one stage past the readers. The
+    guard is worded so it cannot be misread as a reader behaviour, and `variants`/`traits` stay
+    unguarded because nothing downstream refuses an empty one.
+    """
+    for value, label in ((None, "absent"), ([], "empty"), ("Summonable", "not a list")):
+        got = violations(fields(acquisition=value))
+        assert any("no acquisition flags" in v for v in got), (label, got)
+    assert violations(fields(acquisition=["Summonable"])) == ()
+    # `variants`/`traits` are NOT guarded: an empty or absent one is never refused anywhere.
+    assert violations(fields(variants=None, traits=[])) == ()
+
+
+def test_the_stage_four_guard_is_named_in_the_docstring_like_every_other_guard():
+    """A guard the coverage assertion does not name is a guard a future edit can drop silently."""
+    assert "species has no acquisition flags" in CONSUMER_GUARDS
+    assert "STAGE 4" in (violations.__doc__ or "")
 
 
 def test_a_non_string_rank_is_never_a_violation():
@@ -340,6 +355,7 @@ def test_every_documented_guard_has_a_behavioural_case():
         "acquisition '{v}' is not a known CreatureAcquisition":
             lambda: violations(fields(acquisition=["?"])),
         "rank '{v}' is not a known CreatureRank": lambda: violations(fields(rank="?")),
+        "species has no acquisition flags": lambda: violations(fields(acquisition=[])),
     }
     for name, build in cases.items():
         assert name in CONSUMER_GUARDS, f"{name!r} is documented but not in the guard tuple"

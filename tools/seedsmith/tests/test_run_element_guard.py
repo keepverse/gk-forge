@@ -87,14 +87,79 @@ def test_the_refusal_marks_the_species_failed_with_a_reason():
     """The refusal has to be ACTIONABLE: a rerun retries `failed`, and a species that never resolves
     must be visible. Appending to `completed` while refusing to write would be worse than either."""
     src = RUNNER.read_text(encoding="utf-8")
-    guard_at = src.index("if violations:")
+    guard_at = src.index("if blocking:")
     window = src[guard_at: src.index("_write_species_entry(", guard_at)]
     assert "record.failed.append(species_id)" in window, window
     assert "_remember_failure(" in window, window
     assert "record.completed.append" not in window, window
     # The reason must name WHAT was wrong, not a fixed string - with ten guards behind it, a message
     # that only ever said "elementPrimary" would misreport nine of them.
-    assert '"; ".join(violations)' in window, window
+    assert '"; ".join(blocking)' in window, window
+
+
+def test_a_violation_in_a_field_the_pass_does_NOT_own_does_not_block_its_write():
+    """Regression for a deadlock this guard caused three times, each one ending a repair round early.
+
+    A pipeline-scoped rerun authors only its own attributes. Refusing it over a defect in a field it
+    never touched makes corpus repair impossible: measured 2026-10-04, 71 of 134 `kit-shape` reruns
+    failed because `aptitudeSecondary` was still absent while the secondary pipeline was refused for
+    the still-absent `reach` — neither could go first. The last seven species deadlocked the same way
+    with `deployMode: ""` blocking `kit-shape` and `attackTempo: ""` blocking `deployment`, so no
+    rerun of anything could ever write them.
+
+    Whole-entry conformance is not lost: it is the corpus gate's job
+    (`csharp_anchor_corpus_violations`), and a full run still refuses on ANY violation.
+    """
+    src = RUNNER.read_text(encoding="utf-8")
+    # The scoping decision and its warning sit ABOVE the refusal, so the window starts there.
+    guard_at = src.index("own_attributes = set(PIPELINES[pipeline_scope].attributes)")
+    window = src[guard_at: src.index("_write_species_entry(", guard_at)]
+    # A full run authors everything, so nothing is filtered out of its refusal.
+    assert "blocking = violations if own_attributes is None else tuple(" in window, window
+    # And a carried-over defect is REPORTED rather than silently dropped.
+    assert "does not own" in window, window
+    assert "file=sys.stderr" in window, window
+    assert window.index("does not own") < window.index("if blocking:"), (
+        "the report must happen before the refusal, so a carried-over defect is never mistaken "
+        "for a blocking one")
+
+
+def test_the_violation_matcher_binds_on_a_word_boundary_against_the_predicates_real_output():
+    """A matcher that silently matched nothing would stop blocking anything and still look green —
+    the guard would be decorative. Driven from the predicates' own output, not from hand-written
+    strings, so it cannot drift from the wording it has to read."""
+    from seedsmith.adapters.creatures.anchor.schema import csharp_anchor_consumer_violations
+    from seedsmith.adapters.creatures.run.runner import _violation_names_any
+
+    def fields(**over):
+        legal = {
+            "speciesId": "Specimen", "rarity": "chaff", "aptitudePrimary": "Might",
+            "aptitudeSecondary": "none", "attackTempo": "steady", "reach": "melee",
+            "side": "plant", "elementPrimary": "fire", "elementSecondary": "none",
+            "deployMode": "PlantAvatar", "targetPreference": "frontline", "pure": False,
+            "acquisition": ["Summonable"], "rank": "chaff", "gameTypeId": 42,
+        }
+        legal.update(over)
+        return csharp_anchor_consumer_violations(legal)
+
+    # Presence guards name the key quoted; membership guards lead with the field name.
+    assert _violation_names_any(fields(attackTempo="")[0], {"attackTempo"}) is True
+    absent_reach = csharp_anchor_consumer_violations(
+        {k: v for k, v in {
+            "speciesId": "Specimen", "rarity": "chaff", "aptitudePrimary": "Might",
+            "aptitudeSecondary": "none", "attackTempo": "steady", "side": "plant",
+            "elementPrimary": "fire", "elementSecondary": "none", "deployMode": "PlantAvatar",
+            "targetPreference": "frontline", "pure": False, "acquisition": ["Summonable"],
+            "rank": "chaff", "gameTypeId": 42,
+        }.items()})
+    assert _violation_names_any(absent_reach[0], {"reach"}) is True
+
+    # And a DIFFERENT field must not match: `elementPrimary` is not `elementSecondary`, and
+    # substring matching would have merged those two into one field.
+    for violation, foreign in ((fields(elementPrimary="smoke")[0], "elementSecondary"),
+                               (fields(rank="mythic")[0], "rarity"),
+                               (fields(acquisition=["Plasma"])[0], "deployMode")):
+        assert _violation_names_any(violation, {foreign}) is False, (violation, foreign)
 
 
 def test_the_refusal_judges_the_MERGED_fields_not_the_pass_output():

@@ -438,15 +438,26 @@ def csharp_anchor_consumer_violations(fields: "object") -> "tuple[str, ...]":
        deliberately NOT a violation: refusing it would be refusing an entry consumer 2 silently
        drops, which is a real defect of a different kind (a lost species, not a rejected file).
 
+    -- STAGE 4: `CreatureSpeciesCatalog.Validate`, reached by `CreatureRecipeReconcileInput` --------
+    Only the stages this tool actually RUNS are listed, and that set was measured by running it
+    rather than assumed. Clearing `AnchorRowReader`/`SpeciesExpander` alone was enough to load all
+    904 entries, and the tool then failed one stage further out on this:
+
+        species has no acquisition flags        `acquisition` present, a list, and non-empty
+
+    `acquisition` is absent on 301 of the 904 real entries and `StrArray` silently defaults it to an
+    empty list, so it survives every stage above and is refused HERE — `CreatureRarity.cs`'s own "a
+    species with None is a catalog error" made concrete. It is the one guard here the two readers do
+    not raise, and it is present because the tool's exit code is the acceptance measurement: a
+    predicate that stopped at stage 3 would report 0 while the tool still exited non-zero, which is
+    precisely the failure mode this predicate exists to prevent.
+
     -- CONSIDERED AND DELIBERATELY NOT GUARDS ----------------------------------------------
     Named here so a reader can tell an omission from an oversight:
 
-        `AnchorRowReader.StrArray` (`variants`, `acquisition`, `traits`) silently defaults to an
-            EMPTY list for a missing or non-array key; it never raises. A missing `acquisition`
-            therefore reaches `Expand` as no flags at all — which `CreatureSpeciesCatalog`'s own
-            validation later refuses, but not these two stages. Inventing a guard here would claim a
-            refusal this consumer does not make. Measured: `acquisition` is ABSENT on 304 of 904
-            entries today, all of them invisible to these stages.
+        `StrArray`'s `variants` and `traits` still default silently to an EMPTY list and nothing
+            downstream refuses an empty one, so they stay unguarded. `acquisition` left that list
+            precisely because stage 4 does refuse it.
         `AnchorRowReader`'s `threatBand`, `pure` and `speciesKind`, and a NON-STRING `rank`, all
             degrade to null/false and never raise.
         `speciesId`, `side` and `targetPreference` are presence-guarded and nothing more — `Expand`
@@ -525,15 +536,23 @@ def csharp_anchor_consumer_violations(fields: "object") -> "tuple[str, ...]":
         out.append(
             f"aptitudeSecondary {aptitude_secondary!r} has no edge in aptitudes.v2.json")
 
-    # ---- acquisition: a flag ARRAY, each flag parsed on its own -------------------------------
+    # ---- acquisition: a flag ARRAY, each flag parsed on its own (stages 3 and 4) ----------------
+    # Stage 3 parses each flag; stage 4 refuses the species outright when the array is empty.
+    # `StrArray` makes absent, non-list and empty all the SAME thing — an empty array — so the guard
+    # does too, via the `isinstance` normalisation rather than three separate branches. Absent is the
+    # case that actually occurs (301 of 904 real entries), and it is the one a naive
+    # `if isinstance(..., list)` guard silently misses.
     acquisition = fields.get("acquisition")
-    if isinstance(acquisition, list):
-        for flag in acquisition:
-            # A non-string element can only come from a hand-edit: `StrArray` would have stringified
-            # it to "" and then refused it at the enum parse, so refusing it here agrees.
-            if not isinstance(flag, str) or not _is_member(
-                    flag, C_SHARP_ACQUISITION_FLAGS, folded=False):
-                out.append(f"acquisition {flag!r} is not a known CreatureAcquisition")
+    flags = acquisition if isinstance(acquisition, list) else []
+    if not flags:
+        out.append("species has no acquisition flags — 'acquisition' is absent, not a list, or "
+                   "empty (StrArray makes all three an empty array)")
+    for flag in flags:
+        # A non-string element can only come from a hand-edit: `StrArray` would have stringified
+        # it to "" and then refused it at the enum parse, so refusing it here agrees.
+        if not isinstance(flag, str) or not _is_member(
+                flag, C_SHARP_ACQUISITION_FLAGS, folded=False):
+            out.append(f"acquisition {flag!r} is not a known CreatureAcquisition")
 
     # ---- rank: gated on being a string at all, and on not being the `unresolved` sentinel ------
     # A non-string `rank` never reaches `ResolveRank` (the reader's own `ValueKind == String` test
