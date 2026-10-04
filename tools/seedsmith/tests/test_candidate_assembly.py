@@ -342,24 +342,37 @@ class TestFullChainSynthetic:
 # justification belongs here and not in a ledger row):
 #
 #   The three inputs are data/seed/actions/_candidates/{general,family}/round-1.json and
-#   data/seed/actions/_briefs/round-1.json. Measured: all three are UNTRACKED in gk-forge and absent
-#   from a clean checkout. They are generation INTERMEDIATES inside the content pack, not emitted
-#   seed and not shipped content, which is precisely why they are correctly untracked.
+#   data/seed/actions/_briefs/round-1.json. Re-measured 2026-10-04 rather than carried forward:
+#   the two `_candidates/.../round-1.json` files have NEVER been tracked (`git log` over that path
+#   is empty) and are absent from a clean checkout — they are generation INTERMEDIATES inside the
+#   content pack, not emitted seed, which is why they are correctly untracked. They are also what
+#   actually fires this skip.
 #
-#   That makes this an opportunistic proof over the artifacts of the most recent generation run: it
-#   runs in the session that produced them and skips everywhere else. Making it hermetic would be the
-#   WRONG fix and would look like progress while destroying the point of the class -- its own header
-#   says "not a synthetic stand-in", so planting fixtures would leave a permanently green test that
-#   proves nothing about real candidates. The hermetic path to this behaviour already exists and is
-#   covered above by the synthetic classes, which is where a regression in candidate assembly would
-#   actually be caught on every run.
+#   ⛔ ONE FACT IN THE PREVIOUS WORDING WAS WRONG, and it is corrected here rather than left to rot.
+#   This used to say "all three are UNTRACKED ... which is precisely why they are correctly
+#   untracked". That is false: `data/seed/actions/_briefs/round-1.json` IS tracked (43 MB, tracked
+#   since the import snapshot, rewritten by the family-namespace regenerations), as is `round-2.json`.
+#   So one of the three inputs is committed content. It was also wrong that they live in gk-forge —
+#   they live in gk-data's content pack.
+#
+#   THE CONCLUSION IS UNAFFECTED, which is why this stays a skip rather than becoming a new gate.
+#   What this class asserts is that real accepted CANDIDATES reach a gated row, and the candidates
+#   are the untracked intermediates. So this remains an opportunistic proof over the artifacts of the
+#   most recent generation run: it runs in the session that produced them and skips everywhere else.
+#   Making it hermetic would be the WRONG fix and would look like progress while destroying the point
+#   of the class -- its own header says "not a synthetic stand-in", so planting fixtures would leave a
+#   permanently green test that proves nothing about real candidates. The hermetic path to this
+#   behaviour already exists and is covered above by the synthetic classes, which is where a
+#   regression in candidate assembly would actually be caught on every run.
 # ---------------------------------------------------------------------------------------------
 
 @pytest.mark.skipif(not GENERAL_CANDIDATES_PATH.is_file() or not FAMILY_CANDIDATES_PATH.is_file()
                     or not BRIEFS_PATH.is_file(),
-                    reason="real smoke-batch round-1 candidates/briefs are generation intermediates, "
-                           "correctly untracked - they exist only in a session that just generated "
-                           "them, so this opportunistic proof cannot run on a clean checkout")
+                    reason="the real smoke-batch round-1 CANDIDATES are generation intermediates "
+                           "that have never been tracked, so they exist only in a session that just "
+                           "generated them and this opportunistic proof cannot run on a clean "
+                           "checkout (the round-1 briefs, by contrast, ARE tracked - see the note "
+                           "above)")
 class TestRealContent:
     @staticmethod
     def _load(path: Path) -> dict:
