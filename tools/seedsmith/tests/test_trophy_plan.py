@@ -296,7 +296,21 @@ class RealCorpusReconciliationTests(unittest.TestCase):
         for row in self.registry_rows:
             if row.scope == "family":
                 by_family.setdefault(row.scope_key, set()).add(row.slot)
-        self.assertEqual(set(by_family), all_families)
+        # OWNER RULING 2026-10-04: the registry is APPEND-ONLY, so this is a SUPERSET check, not
+        # set equality. Exact equality asserted a property the generator cannot hold:
+        # `plan_trophy_registry` only ever appends (`plan.py`'s `_mint_for_scope` says "never
+        # renumbers, never removes", and `all_rows = existing_rows + new_rows` keeps every
+        # existing row verbatim), so a family retired from the vocabulary leaves its rows behind
+        # FOREVER, by construction rather than by accident.
+        #
+        # THE COST, restated here so it travels with the code: this assertion can no longer catch
+        # a row belonging to a RETIRED family. A row minted for a family that no longer exists is
+        # invisible to it from now on. What it still proves is the half that ships — every LIVE
+        # family has rows — which is what the first assertion below checks.
+        missing = all_families - set(by_family)
+        self.assertEqual(
+            missing, set(),
+            f"{len(missing)} live family/families have no trophy row at all: {sorted(missing)[:10]}")
         for family_id, slots in by_family.items():
             self.assertEqual(slots, set(range(1, self.tuning.per_family + 1)),
                              f"{family_id} has slots {sorted(slots)}")
