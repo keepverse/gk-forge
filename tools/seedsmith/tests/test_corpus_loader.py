@@ -11,8 +11,10 @@ tree. The three closed vocabularies this module reads fresh from data rather tha
 these fixtures use real, live ids for the "valid" cases (`atom.searing-strike` / `atom.volley` from
 `gk-data/packs/fusion/data/seed/items/affix-families/g-on-hit.json` — the same two ids the spec's own envelope example
 uses; `atom.chill-punisher` / `atom.rot-punisher` from the live `pairings.json`; `cherry` from the
-live `family-map.json`) and the spec's own planted-violation examples for the "invalid" cases
-(`"economy"`, `"marigold"`, `"rot"`).
+live `family-map.json`) and planted-violation examples for the "invalid" cases (`"economy"`,
+`"rot"`). The one exception is the family-scoped `scopeKey` probe, which is DERIVED at call time
+and checks its own absence — see `_a_scope_key_the_live_vocabulary_does_not_have` for the measured
+reason the transcribed literal it replaced (`"marigold"`) is now a real family id.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from seedsmith.adapters.actions.load import load_committed  # noqa: E402
+from seedsmith.adapters.actions.vocab import load_family_map_keys  # noqa: E402
 from seedsmith.corpus import CorpusLoadError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -95,6 +98,35 @@ def _valid_action_seed(entry_id: str, **overrides) -> dict:
 def _corpus_hash(corpus) -> str:
     canon = sorted((e.id, e.kind, json.dumps(e.data, sort_keys=True)) for e in corpus.entries.values())
     return hashlib.sha256(json.dumps(canon, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+#: The negative `scopeKey` probe. See `_a_scope_key_the_live_vocabulary_does_not_have` for why it
+#: is a derived, self-checking probe rather than a transcribed literal.
+_UNKNOWN_SCOPE_KEY_PROBE = "seedsmith-unknown-family-scope-key"
+
+
+def _a_scope_key_the_live_vocabulary_does_not_have() -> str:
+    """A `scopeKey` the LIVE family vocabulary provably does NOT contain, proved at call time.
+
+    This fixture used to plant `marigold`, the spec's own planted-violation example. That literal
+    was genuinely fabricated when this file was written, and it stopped being fabricated: the
+    family vocabulary has since widened (measured today: 614 family ids, from 227 when the spec
+    wrote the example), and `marigold` is now one of them — a real family in the live
+    `family-map.json`. Planting a REAL id exercised the loader's ACCEPT path, so the test failed
+    with `0 != 1` while the loader under test was doing exactly what it should.
+
+    So the negative case is derived instead of transcribed, and it ASSERTS ITS OWN DEFECTHOOD:
+    should a future family ever be named this, the assert below fires loudly at fixture time
+    rather than the test quietly ceasing to test anything. A negative fixture that has stopped
+    being negative is the same failure as a mutant that was never installed — invisible unless
+    something checks.
+    """
+    keys = load_family_map_keys()
+    assert _UNKNOWN_SCOPE_KEY_PROBE not in keys, (
+        f"{_UNKNOWN_SCOPE_KEY_PROBE!r} is now a REAL family id in the live vocabulary "
+        f"({len(keys)} ids). This fixture has stopped being a negative case — pick another "
+        "probe, and do not simply delete the assert: a silent accept path here is the defect.")
+    return _UNKNOWN_SCOPE_KEY_PROBE
 
 
 class DeterminismTests(unittest.TestCase):
@@ -217,17 +249,19 @@ class UnknownFamilyTests(unittest.TestCase):
     """Testing table row 7 + acceptance #6e — the eleventh vocabulary."""
 
     def test_family_scoped_entry_with_unknown_scope_key_is_refused(self) -> None:
+        unknown_key = _a_scope_key_the_live_vocabulary_does_not_have()
         root = Path(tempfile.mkdtemp())
         _write_manifest(root)
-        _write(root, "family/marigold.json", {"schemaVersion": 1, "kind": "action-seed", "entries": [
-            _valid_action_seed("action.family.marigold.001", scope="family", scopeKey="marigold")]})
+        _write(root, f"family/{unknown_key}.json", {"schemaVersion": 1, "kind": "action-seed",
+                   "entries": [_valid_action_seed(f"action.family.{unknown_key}.001", scope="family",
+                                                  scopeKey=unknown_key)]})
 
         result = load_committed(root)
 
         refused = [f for f in result.findings if f.code == "unknown-family-scope-key"]
         self.assertEqual(len(refused), 1)
         self.assertIn("scopeKey", refused[0].message)
-        self.assertIn("marigold", refused[0].message)
+        self.assertIn(unknown_key, refused[0].message)
 
     def test_family_scoped_entry_with_a_real_family_key_is_not_refused(self) -> None:
         root = Path(tempfile.mkdtemp())
