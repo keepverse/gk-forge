@@ -344,7 +344,7 @@ else
             }).ToList(),
         };
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(jsonOut))!);
-        File.WriteAllText(jsonOut, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(jsonOut, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }).ToLf());
         Console.WriteLine();
         Console.WriteLine($"  wrote {jsonOut}");
     }

@@ -262,7 +262,9 @@ static int ExportLegacy(string path)
         })
         .ToList();
 
-    var json = JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true });
+    // ToLf(): an indented JsonSerializer emits CRLF on net8.0, so this wrote a CRLF file into an
+    // LF-committed tree. Same reason the sibling serializer at line 130 goes through .ToLf().
+    var json = JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }).ToLf();
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
     File.WriteAllText(path, json);
     Console.WriteLine($"{rows.Count} legacy species exported to {path}");

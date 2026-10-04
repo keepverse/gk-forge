@@ -148,7 +148,12 @@ static string RenderSeedFile(string partition, IReadOnlyList<CreatureCorpusEntry
         w.WriteEndArray();
         w.WriteEndObject();
     }
-    return Encoding.UTF8.GetString(stream.ToArray());
+    // LF, never Environment.NewLine. Measured on net8.0: an INDENTED Utf8JsonWriter hardcodes \r\n
+    // — it does not read Environment.NewLine — so this emitted CRLF on every platform into a tracked,
+    // LF-committed corpus (gk-data packs/fusion/data/seed/creatures/*.json). File.WriteAllText is
+    // innocent: it writes the string verbatim, so the payload is the whole defect. CreatureCorpusDump's
+    // DumpWriter.ToLfLineEndings already fixes the same idiom for the same corpus; this is its twin.
+    return Encoding.UTF8.GetString(stream.ToArray()).ToLf();
 }
 
 static void WriteNullableString(Utf8JsonWriter w, string name, string? value)

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FusionRpg.Core.Creatures.Generation;
 using FusionRpg.Core.Workspace;
 using System.Text.RegularExpressions;
 using FusionRpg.Core.Balance.Guards;
@@ -228,7 +229,7 @@ if (wantGeared)
     };
 }
 
-var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }).ToLf();
 if (string.IsNullOrEmpty(outPath)) Console.WriteLine(json);
 else File.WriteAllText(outPath, json);
 

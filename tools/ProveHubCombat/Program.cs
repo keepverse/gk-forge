@@ -2,6 +2,7 @@ using System.Text.Json;
 using FusionRpg.Core.Workspace;
 using FusionRpg.Core.Battle;
 using FusionRpg.Core.Creatures;
+using FusionRpg.Core.Creatures.Generation;
 using FusionRpg.Core.Effects.Atoms;
 using FusionRpg.Core.Effects.Atoms.Power;
 using FusionRpg.Core.Items;
@@ -166,7 +167,7 @@ var outcome1 = ProveBattleEqualsSheet(store, service);
 var outcome2 = ProveDodgeCooldownRaisesStanding_ThetaAloneDoesNot(store);
 
 var result = new ProveHubCombatResult(outcome1, outcome2, outcome1.Pass && outcome2.Pass);
-var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }).ToLf();
 
 outPath ??= Path.Combine(KeepverseRoots.Workspace(), "docs", "research", "actor-hub-and-combat-power", "_prove-hub-combat.json");
 Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);

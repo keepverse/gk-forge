@@ -1,3 +1,4 @@
+using FusionRpg.Core.Creatures.Generation;
 using FusionRpg.Core.Status;
 
 namespace FusionRpg.Tools.PassiveTreeRosterGen;
@@ -75,6 +76,10 @@ public static class StatusRosterCheck
         }
         w.AppendLine("  ]");
         w.AppendLine("}");
-        return w.ToString();
+        // LF, never Environment.NewLine: AppendLine translates to the host newline (CRLF on Windows),
+        // so a regenerate on Windows rewrites every line of data/seed/statuses/roster.json against an
+        // LF-committed blob — content-identical, invisible to `git status`, fatal to a byte compare.
+        // ToLf() is gk-core's CanonicalEol; AtomVocabCheck.GenerateJson does this for the sibling emit.
+        return w.ToString().ToLf();
     }
 }
