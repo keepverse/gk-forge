@@ -64,7 +64,7 @@ def write_registry(rows: "tuple[plan_mod.TrophyRow, ...]", path: "Path | None" =
     payload = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
     handle, tmp_name = tempfile.mkstemp(dir=str(registry_path.parent), suffix=".tmp")
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as fh:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(payload)
         os.replace(tmp_name, registry_path)
     except BaseException:

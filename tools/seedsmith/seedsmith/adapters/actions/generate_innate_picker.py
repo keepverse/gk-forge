@@ -137,7 +137,7 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, catalog_path: Path = CATALO
 
     if write:
         (actions_root / "species-innate.json").write_text(
-            ip.canonical_dump(innate_doc), encoding="utf-8")
+            ip.canonical_dump(innate_doc), encoding="utf-8", newline="\n")
 
     committed_written = False
     if round_rows and write:
@@ -152,12 +152,12 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, catalog_path: Path = CATALO
             "partition": f"round-{round_no}", "round": round_no,
             "corpusHash": ip.corpus_hash(promoted_rows),
         })
-        committed_path.write_text(ip.canonical_dump(committed_doc), encoding="utf-8")
+        committed_path.write_text(ip.canonical_dump(committed_doc), encoding="utf-8", newline="\n")
 
         markers = ip.reduce_round_survivors_to_markers(round_rows)
         new_round_doc = dict(round_doc)
         new_round_doc["entries"] = markers
-        survivors_path.write_text(ip.canonical_dump(new_round_doc), encoding="utf-8")
+        survivors_path.write_text(ip.canonical_dump(new_round_doc), encoding="utf-8", newline="\n")
         committed_written = True
         # Post-promotion sweep: this run just committed `round_rows` — any OTHER round's
         # survivors file holding the same ids as full rows (measured 2026-09-15: round-1000
@@ -205,7 +205,7 @@ def _prune_stale_survivors(actions_root: Path, committed_ids: "set[str]") -> "di
         if converted:
             doc = dict(doc)
             doc["entries"] = fixed
-            path.write_text(ip.canonical_dump(doc), encoding="utf-8")
+            path.write_text(ip.canonical_dump(doc), encoding="utf-8", newline="\n")
             pruned[round_dir.name] = converted
     return pruned
 

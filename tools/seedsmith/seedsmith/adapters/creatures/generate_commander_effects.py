@@ -166,7 +166,7 @@ def main(argv=None) -> int:
     (OUTPUT_DIR / "all.json").write_text(
         json.dumps({"kind": "commander-effect", "_meta": {"partition": "all"},
                     "entries": entries}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
     print(json.dumps({
         "generated": len(fresh), "kept": len(keep), "totalEntries": len(entries),

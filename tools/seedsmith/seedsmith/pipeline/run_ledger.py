@@ -73,7 +73,7 @@ class RunLedger:
         ) + "\n"
         handle, tmp_name = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
         try:
-            with os.fdopen(handle, "w", encoding="utf-8") as fh:
+            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(payload)
             self._replace_with_retry(tmp_name)
         except BaseException:

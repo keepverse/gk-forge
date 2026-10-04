@@ -89,7 +89,7 @@ def regenerate(*, plan_path: Path, usage_reports_dir: Path = USAGE_REPORTS_DIR,
 
     out_path = plan_out_path or plan_path
     if write:
-        out_path.write_text(_canonical_dump(doc), encoding="utf-8")
+        out_path.write_text(_canonical_dump(doc), encoding="utf-8", newline="\n")
 
     assigned_count = sum(1 for v in assignments.values() if v)
     unassigned_count = sum(1 for v in assignments.values() if not v)

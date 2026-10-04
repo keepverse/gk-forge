@@ -206,5 +206,5 @@ def merge_into_partition_document(existing_doc: "dict[str, Any]",
 def write_document(path: Path, doc: "dict[str, Any]") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-                    encoding="utf-8")
+                    encoding="utf-8", newline="\n")
     return path

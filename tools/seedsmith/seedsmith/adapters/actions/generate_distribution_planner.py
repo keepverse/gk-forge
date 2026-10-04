@@ -434,7 +434,7 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, creatures_root: Path = CREA
     if write:
         briefs_dir = actions_root / "_briefs"
         briefs_dir.mkdir(parents=True, exist_ok=True)
-        (briefs_dir / f"round-{round_no}.json").write_text(_canonical_dump(out_doc), encoding="utf-8")
+        (briefs_dir / f"round-{round_no}.json").write_text(_canonical_dump(out_doc), encoding="utf-8", newline="\n")
 
     by_scope: "dict[str, int]" = {}
     by_role: "dict[str, int]" = {}

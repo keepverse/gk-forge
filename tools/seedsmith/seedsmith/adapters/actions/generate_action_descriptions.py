@@ -166,7 +166,7 @@ def backfill(*, actions_root: Path = ACTIONS_ROOT, ledger_path: Path = LEDGER_PA
             doc = json.loads(file_path.read_text(encoding="utf-8"))
             file_updates = {i: updates_by_id[i] for i in ids_in_file if i in updates_by_id}
             new_doc = apply_updates_to_doc(doc, file_updates)
-            file_path.write_text(canonical_dump(new_doc), encoding="utf-8")
+            file_path.write_text(canonical_dump(new_doc), encoding="utf-8", newline="\n")
 
     return {"planned": to_generate, "dryRun": False, "generated": generated}
 

@@ -252,7 +252,7 @@ def regenerate(*, actions_root: Path = ACTIONS_ROOT, creatures_root: Path = CREA
         reports_dir = actions_root / "_reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         out_path = reports_dir / f"coverage-round-{round_no}.json"
-        out_path.write_text(dump, encoding="utf-8")
+        out_path.write_text(dump, encoding="utf-8", newline="\n")
 
     gap_count = sum(1 for f in closed_findings if f.severity.value == "gap")
     return {

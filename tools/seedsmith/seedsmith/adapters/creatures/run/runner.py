@@ -1047,7 +1047,7 @@ def request_pause(*, paths: RunPaths = RunPaths()) -> None:
     between species (never mid-species, spec §2's own warning). Does nothing to a run that is not
     currently `running`; the sentinel is inert until a loop is polling it."""
     paths.runs_dir.mkdir(parents=True, exist_ok=True)
-    paths.pause_sentinel_path.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), encoding="utf-8")
+    paths.pause_sentinel_path.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), encoding="utf-8", newline="\n")
 
 
 def cancel(*, paths: RunPaths = RunPaths()) -> RunRecord:

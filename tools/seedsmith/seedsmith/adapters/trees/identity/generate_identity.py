@@ -133,6 +133,6 @@ def write_identity_file(identity_root: Path, tree_id: str, entry: "Mapping[str, 
     path = identity_root / f"{tree_id}.json"
     path.write_text(
         json.dumps(dict(entry, treeId=tree_id), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     return path

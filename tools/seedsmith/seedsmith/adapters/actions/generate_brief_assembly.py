@@ -110,7 +110,7 @@ def regenerate(*, plan_path: Path, accepted_round_path: Path, actions_root: Path
     if write:
         round_dir = actions_root / "_rounds" / f"round-{round_no}"
         round_dir.mkdir(parents=True, exist_ok=True)
-        (round_dir / "p3-briefs.json").write_text(ba.canonical_dump(envelope), encoding="utf-8")
+        (round_dir / "p3-briefs.json").write_text(ba.canonical_dump(envelope), encoding="utf-8", newline="\n")
 
     return {
         "round": round_no,

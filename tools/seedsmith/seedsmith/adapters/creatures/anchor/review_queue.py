@@ -31,7 +31,7 @@ def write_review_queue(entries: "list[ThreatAuditReviewEntry]", path: Path) -> N
     rows = sorted(entries, key=lambda e: (e.side, e.species_id))
     path.write_text(
         json.dumps([asdict(e) for e in rows], indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def read_review_queue(path: Path) -> "list[ThreatAuditReviewEntry]":

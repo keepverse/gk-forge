@@ -79,7 +79,7 @@ class RunRecord:
 def write_record(record: RunRecord, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-                    encoding="utf-8")
+                    encoding="utf-8", newline="\n")
 
 
 def read_record(path: Path) -> "RunRecord | None":

@@ -292,7 +292,7 @@ def apply_restamp(report: EdgeRestampReport, *, base_types_dir: "Path | str | No
         }
         doc["_meta"] = {**meta, "amendments": [*meta.get("amendments", []), amendment]}
         path.write_text(json.dumps(doc, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-                        encoding="utf-8")
+                        encoding="utf-8", newline="\n")
 
     return written
 
@@ -320,7 +320,7 @@ def main(argv=None) -> int:
     payload = report.summary()
     if args.json:
         Path(args.json).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                                   encoding="utf-8")
+                                   encoding="utf-8", newline="\n")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
     if args.write:

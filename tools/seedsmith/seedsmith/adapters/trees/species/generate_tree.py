@@ -92,7 +92,7 @@ def write_species_metadata(species_id: str, document: dict,
     Returns the path written. The ONE writer, shared by `run_species_tree` and the batch driver."""
     path = species_metadata_path(species_id, seed_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return path
 
 

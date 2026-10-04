@@ -442,5 +442,5 @@ def write_preflight_record(report: PreflightReport, *, dump_dir: Path = DEFAULT_
         "writtenUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     path = dump_dir / PREFLIGHT_RECORD_NAME
-    path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
     return path

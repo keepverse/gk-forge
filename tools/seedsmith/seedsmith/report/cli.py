@@ -448,7 +448,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     if args.json:
         Path(args.json).write_text(
-            json.dumps([f.to_dict() for f in findings], indent=2), encoding="utf-8")
+            json.dumps([f.to_dict() for f in findings], indent=2), encoding="utf-8", newline="\n")
 
     _print_human(findings)
 
@@ -525,7 +525,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     findings = run_all(registry, ctx, metric_ids=args.metric or None)
 
     if args.json:
-        Path(args.json).write_text(json.dumps([f.to_dict() for f in findings], indent=2), encoding="utf-8")
+        Path(args.json).write_text(json.dumps([f.to_dict() for f in findings], indent=2), encoding="utf-8", newline="\n")
     _print_human(findings)
 
     relevant = findings
@@ -830,7 +830,7 @@ def cmd_items(args: argparse.Namespace) -> int:
             "schemaVersion": 1, "kind": args.kind, "population": args.population,
             "promptVersion": _prompt_version(),
             "subjects": [{**s.to_dict(), "brief": s.brief} for s in plan.subjects],
-        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"\nwrote {len(plan.subjects)} brief(s) to {target}", file=sys.stderr)
 
     if args.write:
@@ -1790,7 +1790,7 @@ def _persist_combination_still_blocked_report(shape_rows: list[dict], *, shape: 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(
         json.dumps({"schemaVersion": 1, "rows": merged}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def _cmd_items_combination(args: argparse.Namespace) -> int:
@@ -1903,7 +1903,7 @@ def _cmd_items_combination(args: argparse.Namespace) -> int:
             "schemaVersion": 1, "kind": "combination", "shape": args.shape,
             "promptVersion": combo_prompt_version,
             "subjects": [{**s.to_dict(), "brief": s.brief} for s in plan.subjects],
-        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"\nwrote {len(plan.subjects)} brief(s) to {target}", file=sys.stderr)
 
     if args.write:
@@ -2254,7 +2254,7 @@ def _record_combogen_reemit_amendment(shape: str, ids: "list[str]", root: Path,
     }
     meta = {**document["_meta"], "amendments": [*document["_meta"].get("amendments", []), amendment]}
     path.write_text(json.dumps({**document, "_meta": meta}, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
+                    encoding="utf-8", newline="\n")
 
 
 def _cmd_items_combogen_migrate(args: argparse.Namespace) -> int:

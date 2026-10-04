@@ -187,7 +187,7 @@ def regenerate(root: Path = CREATURES_ROOT, *, rebuild: bool = False, write: boo
         motifs_path.write_text(
             json.dumps({"schemaVersion": 1, "registryVersion": 1, "motifs": vocabulary},
                        ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
 
     return {
         "themes": len(registry),

@@ -135,7 +135,7 @@ def apply_reslate(report: ReslateReport, *, base_types_dir: "Path | None" = None
             touched = True
             written += 1
         if touched:
-            path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return written
 
 
@@ -153,7 +153,7 @@ def main(argv=None) -> int:
     payload = report.summary()
     if args.json:
         Path(args.json).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                                   encoding="utf-8")
+                                   encoding="utf-8", newline="\n")
     print(json.dumps({k: v for k, v in payload.items() if k != "rows"}, ensure_ascii=False, indent=2))
 
     if args.apply:

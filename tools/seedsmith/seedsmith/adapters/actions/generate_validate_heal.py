@@ -247,7 +247,7 @@ def regenerate(*, candidates_path: "Path | Sequence[Path]", briefs_path: Path, r
         round_dir = ACTIONS_ROOT / "_rounds" / f"round-{round_no}"
         round_dir.mkdir(parents=True, exist_ok=True)
         for name, doc in docs.items():
-            (round_dir / f"{name}.json").write_text(canonical_dump(doc), encoding="utf-8")
+            (round_dir / f"{name}.json").write_text(canonical_dump(doc), encoding="utf-8", newline="\n")
 
     return {
         "round": round_no, "candidateCount": len(candidate_rows),

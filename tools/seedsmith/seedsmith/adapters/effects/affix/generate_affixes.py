@@ -454,7 +454,7 @@ def main(argv=None) -> int:
     (output_dir / output_filename).write_text(
         json.dumps({"schemaVersion": 1, "kind": "affix", "_meta": {"partition": partition},
                    "entries": entries}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
     by_outcome: "dict[str, int]" = {}
     for r in results.values():

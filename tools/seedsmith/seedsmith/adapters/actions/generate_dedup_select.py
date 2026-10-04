@@ -100,9 +100,9 @@ def regenerate(*, candidates_path: Path, actions_root: Path = ACTIONS_ROOT,
     if write:
         round_dir = actions_root / "_rounds" / f"round-{round_no}"
         round_dir.mkdir(parents=True, exist_ok=True)
-        (round_dir / "survivors.json").write_text(ds.canonical_dump(survivors_doc), encoding="utf-8")
-        (round_dir / "rejects.json").write_text(ds.canonical_dump(rejects_doc), encoding="utf-8")
-        (round_dir / "review-queue.json").write_text(ds.canonical_dump(review_doc), encoding="utf-8")
+        (round_dir / "survivors.json").write_text(ds.canonical_dump(survivors_doc), encoding="utf-8", newline="\n")
+        (round_dir / "rejects.json").write_text(ds.canonical_dump(rejects_doc), encoding="utf-8", newline="\n")
+        (round_dir / "review-queue.json").write_text(ds.canonical_dump(review_doc), encoding="utf-8", newline="\n")
 
     return {
         "round": round_no,

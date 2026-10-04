@@ -177,7 +177,7 @@ def write_seed_file(shape: str, entries: "list[dict]", *, out_dir: Path, model: 
     payload = json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
     handle, tmp_name = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as fh:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(payload)
         os.replace(tmp_name, target)
     except BaseException:

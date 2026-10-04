@@ -151,12 +151,12 @@ def apply_one(item: Redeclaration, *, authored_utc: str) -> None:
     doc["_meta"] = {**meta, "partition": item.derived,
                     "amendments": [*meta.get("amendments", []), amendment]}
     item.path.write_text(json.dumps(doc, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-                         encoding="utf-8")
+                         encoding="utf-8", newline="\n")
     # Identity is the promise this module makes, so it is CHECKED rather than asserted in a docstring.
     after = json.loads(item.path.read_text(encoding="utf-8")).get("entries") or []
     if [e.get("id") for e in after if isinstance(e, dict)] != before_ids:
         item.path.write_text(json.dumps(doc, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-                             encoding="utf-8")
+                             encoding="utf-8", newline="\n")
         raise RuntimeError(
             f"{item.rel}: the re-stamp changed the entry id sequence, which it must never do. The file "
             f"has been rewritten from the same in-memory document; investigate before retrying.")
@@ -204,7 +204,7 @@ def main(argv=None) -> int:
 
     if args.json:
         Path(args.json).write_text(json.dumps([i.as_dict() for i in items], ensure_ascii=False,
-                                             indent=2) + "\n", encoding="utf-8")
+                                             indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"  plan written to {args.json}")
 
     if args.dry_run:

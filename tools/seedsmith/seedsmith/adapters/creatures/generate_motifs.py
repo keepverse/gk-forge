@@ -114,11 +114,11 @@ def regenerate(root: Path = CREATURES_ROOT, *, write: bool = True) -> dict:
         reg.mkdir(parents=True, exist_ok=True)
         (gen / "motif-assignments.json").write_text(
             json.dumps(assignments, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
         (reg / "motifs.v1.json").write_text(
             json.dumps({"schemaVersion": 1, "registryVersion": 1, "motifs": vocabulary},
                        ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
 
     by_basis: "dict[str, int]" = {}
     for d in derived.values():

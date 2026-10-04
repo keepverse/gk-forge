@@ -245,7 +245,7 @@ def write_corpus(fresh: "dict[str, dict]", *, existing: "dict[str, dict] | None"
         "_meta": {"partition": "enhancement-milestones"},
         "entries": entries,
     }
-    p.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    p.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return p
 
 

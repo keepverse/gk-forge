@@ -125,7 +125,7 @@ def regenerate(*, candidates_paths: Sequence[Path], briefs_path: Path,
     if write:
         round_dir = actions_root / "_rounds" / f"round-{round_no}"
         round_dir.mkdir(parents=True, exist_ok=True)
-        (round_dir / "assembled.json").write_text(ca.canonical_dump(envelope), encoding="utf-8")
+        (round_dir / "assembled.json").write_text(ca.canonical_dump(envelope), encoding="utf-8", newline="\n")
 
     return {
         "round": round_no,

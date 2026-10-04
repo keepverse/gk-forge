@@ -181,7 +181,7 @@ def write_set_file(missing: "dict[str, int]", path: Path) -> Path:
     the real CLI, not through 1000x.
     """
     lines = [f"channelWeight.{stem}={value / 1000.0:g}" for stem, value in sorted(missing.items())]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return path
 
 

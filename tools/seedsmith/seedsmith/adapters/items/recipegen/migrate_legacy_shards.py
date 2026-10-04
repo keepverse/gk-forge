@@ -133,7 +133,7 @@ def apply_to_real_corpus(
     new_doc = {**new_doc, "_meta": new_meta}
 
     p.write_text(json.dumps(new_doc, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-                 encoding="utf-8")
+                 encoding="utf-8", newline="\n")
     return findings
 
 

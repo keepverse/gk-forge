@@ -203,7 +203,7 @@ def regenerate(*, briefs_path: Path, pairings_path: Path = PAIRINGS_PATH,
 
     if write:
         candidates_dir.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(canonical_dump(out_doc), encoding="utf-8")
+        output_path.write_text(canonical_dump(out_doc), encoding="utf-8", newline="\n")
 
     return {
         "dryRun": False,

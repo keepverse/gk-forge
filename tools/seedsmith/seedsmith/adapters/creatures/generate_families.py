@@ -126,14 +126,14 @@ def run(argv=None) -> int:
         reg.mkdir(parents=True, exist_ok=True)
         (gen / "family-candidates.json").write_text(
             json.dumps({sid: [c.__dict__ for c in cs] for sid, cs in sorted(candidates.items())},
-                       ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                       ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         (reg / "families.v1.json").write_text(
             json.dumps({"schemaVersion": 1, "registryVersion": 1,
                         "families": {k: result.families[k] for k in result.families}},
-                       ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                       ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         (gen / "family-assignments.json").write_text(
             json.dumps(result.assignments, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

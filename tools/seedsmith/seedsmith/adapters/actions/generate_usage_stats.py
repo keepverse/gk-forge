@@ -91,7 +91,7 @@ def run(argv=None) -> int:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         out_path = REPORT_DIR / f"_usage-{date}.json"
-        out_path.write_text(canonical_dump(report), encoding="utf-8")
+        out_path.write_text(canonical_dump(report), encoding="utf-8", newline="\n")
         print(f"wrote {out_path}")
 
     if args.json:

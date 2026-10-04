@@ -488,7 +488,7 @@ def write_corpus(root: Path) -> "list[Path]":
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         # sort_keys + trailing newline: stable, byte-identical across reruns and across OSes.
-        path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         written.append(path)
     return written
 

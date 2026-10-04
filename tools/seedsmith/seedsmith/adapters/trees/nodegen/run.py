@@ -354,7 +354,7 @@ def write_ledger(done: "dict[str, dict]", path: "Path | None" = None) -> Path:
     payload = json.dumps({"schemaVersion": 1, "done": done}, ensure_ascii=False, indent=2) + "\n"
     handle, tmp_name = tempfile.mkstemp(dir=str(ledger_path.parent), suffix=".tmp")
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as fh:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(payload)
         os.replace(tmp_name, ledger_path)
     except BaseException:
