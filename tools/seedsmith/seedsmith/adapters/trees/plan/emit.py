@@ -46,7 +46,9 @@ REPO_ROOT = Path(__file__).resolve().parents[6]
 # a caller supplying one is stating where the data is.
 
 from ....workspace_roots import core_root  # noqa: E402
+from ....workspace_roots import repo_bases  # noqa: E402
 from ....workspace_roots import seed_root as default_seed_root  # noqa: E402
+from ....workspace_roots import workspace_root  # noqa: E402
 
 
 # docs/architecture/numeric-types.md's numeric-overflow rule: widen before multiplying. Same explicit `long`-bound stand-in
@@ -628,14 +630,42 @@ _MANIFEST_TUNING_FILES: "tuple[tuple[str, str], ...]" = (
 )
 
 
-def _relative_or_absolute(path: Path) -> str:
-    """`_provenance.inputs[].path` — relative to the repo root when the file is actually inside
-    this checkout (the normal case), or the raw path otherwise (a test's scratch seed root) so
-    provenance never raises over a path it merely cannot make relative."""
-    try:
-        return path.relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        return path.as_posix()
+def _provenance_bases() -> "tuple[Path, ...]":
+    """The repository bases `_provenance.inputs[].path` is made relative to, in order.
+
+    ORDER IS THE CONTRACT, and it differs from `repo_bases`' own default order: the workspace root
+    goes LAST. `repo_bases` ends with `workspace_root` because a workspace-relative path is a
+    reasonable answer when you only want to know which checkout you are in. For a committed
+    provenance field it is the wrong answer, because it embeds the sibling directory name —
+    `gk-data/packs/fusion/data/seed/...` changes if the repository is renamed or cloned under a
+    different name. A pack-relative path (`data/seed/...`) is stable under any workspace layout and
+    any checkout name, and is the form this field has always recorded.
+    """
+    bases = repo_bases(REPO_ROOT)
+    ws = workspace_root(REPO_ROOT)
+    ordered = tuple(b for b in bases if b != ws)
+    return ordered + ((ws,) if ws in bases else ())
+
+
+def _relative_or_absolute(path: Path, bases: "tuple[Path, ...] | None" = None) -> str:
+    """`_provenance.inputs[].path` — relative to whichever repository carries the file, or the raw
+    path when none does (a test's scratch seed root), so provenance never raises over a path it
+    merely cannot make relative.
+
+    ⛔ THE BASES ARE NOT JUST `REPO_ROOT`, and getting that wrong wrote MACHINE-LOCAL ABSOLUTE
+    PATHS INTO A COMMITTED ARTIFACT. Since the workspace split this generator lives in gk-forge
+    while the content it plans lives in gk-data, so `path.relative_to(REPO_ROOT)` cannot succeed
+    for any real input: every recorded path fell through to `path.as_posix()`, i.e.
+    `D:/.../gk-data/packs/fusion/data/seed/...`. That is a portability defect twice over — it
+    differs per machine and per checkout, so the same content regenerated in CI would not
+    reproduce these bytes.
+    """
+    for base in (_provenance_bases() if bases is None else bases):
+        try:
+            return path.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
 
 
 def _provenance_inputs(seed_root: Path) -> "list[dict]":
@@ -644,12 +674,14 @@ def _provenance_inputs(seed_root: Path) -> "list[dict]":
     `build_plan` if a required one were missing; this only hashes what is already known to exist,
     except the optional family roster, which is hashed only when present (F=0 is `_pending`, not a
     refusal)."""
+    bases = _provenance_bases()
     inputs: "list[dict]" = []
     for parts in _MANIFEST_INPUT_FILES:
         path = seed_root.joinpath(*parts)
         if not path.exists():
             continue
-        inputs.append({"path": _relative_or_absolute(path), "sha256": content_sha256(path.read_bytes())})
+        inputs.append({"path": _relative_or_absolute(path, bases),
+                       "sha256": content_sha256(path.read_bytes())})
     return inputs
 
 
