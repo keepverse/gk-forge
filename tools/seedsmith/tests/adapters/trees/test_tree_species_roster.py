@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from seedsmith.adapters.creatures.run.runner import _slugify_family
 from seedsmith.adapters.trees.species import roster
 
 
@@ -169,7 +170,26 @@ class RealCorpusTests(unittest.TestCase):
     `"unresolved"`) -- confirmed by reading its real content directly, not assumed safe -- and was
     removed as part of J9's own real de-risking batch run finding it blocked `load_roster()` for the
     real corpus outright. `load_roster()` now loads the real corpus cleanly; this test proves that,
-    matching the file's own stated intent to update this exact assertion once the defect closed."""
+    matching the file's own stated intent to update this exact assertion once the defect closed.
+
+    **The path assertion is DERIVED, by owner ruling 2026-10-04, and no literal replaced the old
+    one.** This test used to pin `SnorkleZombie`'s `source_path` to `'zombie/undead.json'`. That
+    literal had been wrong twice: the anchor moved unclassified -> undead -> plant as the anchor
+    corpus was regenerated through the delegated authoring pass, and the runner's own comment says
+    a species' `family` is model-decided and not stable across runs. Re-pinning
+    `'zombie/plant.json'` would satisfy today's suite and re-arm the identical trap on the next
+    reclassification, so the path is derived twice over instead:
+
+      - against `_index.json`, which `load_roster()` already reconciles against and RAISES on any
+        divergence; and
+      - against the corpus-wide filing convention `<file stem> == slug(species.family[0])`.
+
+    The second derivation is what gives this teeth. A bare comparison against `_index.json` after a
+    successful `load_roster()` is guaranteed by construction -- `load_roster` raises on any
+    index/disk disagreement before returning -- so on its own it could not fail at all. Comparing a
+    parser to the file that same parser validated is not a test. The convention half is derived
+    from the DATA (each species' own declared `family`), so a genuinely misfiled species fails it.
+    """
 
     def test_the_real_corpus_loads_cleanly_now_that_the_snorklezombie_parked_duplicate_is_removed(
             self) -> None:
@@ -178,4 +198,38 @@ class RealCorpusTests(unittest.TestCase):
         # 2026-09-20; the exact AGENTS.md worked example).
         self.assertTrue(len(real_roster.species_ids) > 0)
         self.assertIn("SnorkleZombie", real_roster.species_ids)
-        self.assertEqual("zombie/undead.json", real_roster.anchors["SnorkleZombie"].source_path)
+
+        # Derived, per the ruling: the index's own recorded path. Never a literal -- the literal is
+        # what was wrong twice.
+        index = json.loads(
+            (roster.SPECIES_ROOT / roster.INDEX_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(
+            index["SnorkleZombie"], real_roster.anchors["SnorkleZombie"].source_path,
+            "the rostered source_path disagrees with the path _index.json records")
+
+    def test_every_species_is_filed_at_the_slug_of_its_own_first_family(self) -> None:
+        """The convention `runner._family_for` establishes: a species' `family` is model-decided, so
+        the FILING is derived from it rather than authored. `_slugify_family` is the runner's own
+        implementation, used here rather than a fourth transcription of the same regex."""
+        real_roster = roster.load_roster()
+        misfiled: list[str] = []
+        for species_id in real_roster.species_ids:
+            anchor = real_roster.anchors[species_id]
+            doc = json.loads(
+                (roster.SPECIES_ROOT / anchor.source_path).read_text(encoding="utf-8"))
+            entries = doc if isinstance(doc, list) else [doc]
+            entry = next((e for e in entries if e.get("speciesId") == species_id), None)
+            if entry is None:
+                misfiled.append(f"{species_id}: indexed at {anchor.source_path} but not defined there")
+                continue
+            family = entry.get("family") or []
+            if not family:
+                misfiled.append(f"{species_id}: no `family` at {anchor.source_path}")
+                continue
+            expected = _slugify_family(family[0])
+            stem = PurePosixPath(anchor.source_path).stem
+            if stem != expected:
+                misfiled.append(
+                    f"{species_id}: family[0]={family[0]!r} files it at {anchor.source_path}, "
+                    f"so the stem should be {expected!r} not {stem!r}")
+        self.assertEqual(misfiled, [], f"{len(misfiled)} species misfiled:\\n" + "\\n".join(misfiled[:10]))
