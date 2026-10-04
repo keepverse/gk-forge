@@ -186,6 +186,7 @@ def build_anchor_schema() -> dict:
         "additionalProperties": False,
     }
 
+
 def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
     """Every shape `characteristic_pool.catalog` refuses on the live-seed load path, as one
     predicate.
@@ -264,4 +265,320 @@ def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
                     dead.append(label)
             if dead:
                 out.append(f"family label(s) {dead} normalize to an empty key")
+    return tuple(out)
+
+
+# =================================================================================================
+# Consumer 2 — the C# anchor reader: `AnchorRowReader.ReadOne` + `SpeciesExpander.Expand`
+# =================================================================================================
+#
+# A SIBLING of `seed_consumer_violations`, never an extension of it. Two different consumers read the
+# same corpus and they do NOT accept the same entries: consumer 1 is the Python
+# `characteristic_pool/catalog.py` live-seed loader, consumer 2 is the C# `AnchorRowReader` /
+# `SpeciesExpander` pair that every C# anchor tool and the `RealAnchorCorpusFixture` test family go
+# through (`gk-forge/tools/CreatureRecipeReconcileInput/Program.cs` is one caller;
+# `gk-core/tests/FusionRpg.Core.Tests/Delve/Encounter/RealAnchorCorpusFixture.cs` is another, and it
+# is the fixture whose static initialiser took 133 gk-core tests down).
+#
+# Merging the two sets would be wrong twice over: consumer 1's predicate would start refusing entries
+# consumer 1 loads today (it does NOT care about `reach` or `targetPreference` at all), and
+# `tests/test_seed_consumer_contract.py` pins consumer 1's docstring to consumer 1's exact raise set
+# as its coverage assertion — widening that docstring silently destroys the assertion that keeps
+# consumer 1 honest. Two consumers, two predicates, two tests.
+#
+# Every closed vocabulary consumer 2 checks is declared in THIS module, so nothing below is
+# re-transcribed. `tests/test_csharp_anchor_consumer_contract.py` asserts each one against the file
+# the C# side actually loads (`aptitudes.v2.json` edge sources, `creature-shape.v1.json` keys), which
+# is the drift check that replaces a second copy: if `creature-shape.v1.json` gains a tempo rung and
+# `ATTACK_TEMPO` does not, that test fails rather than the predicate quietly refusing a legal value.
+
+#: The literal one-word sentinel both optional-secondary fields use for "no secondary". The C# reader
+#: maps it to null with a case-INSENSITIVE, untrimmed comparison (`AnchorRow.cs`'s
+#: `string.Equals(x, "none", StringComparison.OrdinalIgnoreCase)`), so `None`/`NONE` are equally exempt
+#: and a value with surrounding whitespace is NOT.
+C_SHARP_NONE_SENTINEL = "none"
+
+#: The eleven anchor keys `AnchorRowReader.ReadOne` reads through its `Str` helper, which raises
+#: `anchor: missing or non-string '{key}'` for anything that is not a JSON string. `StrArray` (the other
+#: three keys) is deliberately NOT here - see the docstring of `csharp_anchor_consumer_violations`.
+C_SHARP_STR_FIELDS = (
+    "speciesId", "rarity", "aptitudePrimary", "aptitudeSecondary",
+    "attackTempo", "reach", "side", "elementPrimary", "elementSecondary",
+    "deployMode", "targetPreference",
+)
+
+#: `ACQUISITION` plus the one C#-legal member this module's authoring contract deliberately omits.
+#:
+#: `CreatureAcquisition` is `[Flags] enum { None = 0, Summonable = 1, CaptureOnly = 2, EventOnly = 4 }`
+#: and `SpeciesExpander` parses each flag with `Enum.TryParse(ignoreCase: false)`, so the literal
+#: `"None"` WOULD parse without raising. It is still excluded here, on purpose and not by oversight:
+#:
+#:   1. `None` is not AUTHORABLE. `_flag_array_prop` builds the authoring JSON Schema's enum straight
+#:      from `ACQUISITION`, so no rerun of `deployment` can emit `"None"` - a guard against an
+#:      unreachable state is a guard that can only ever block a hand-edit.
+#:   2. `None` is already a catalog error by this repo's own ruling, stated twice: `CreatureRarity.cs`
+#:      documents "A species with None is a catalog error", and
+#:      `workflow/validators/anchor.py::acquisition_nonzero` refuses an empty acquisition for the same
+#:      reason. Consumer 2 is simply not where that is enforced.
+#:   3. The consumer's own output projection drops it: `AcquisitionFlags` in
+#:      `CreatureRecipeReconcileInput/Program.cs` filters `CreatureAcquisition.None` out before
+#:      emitting, so accepting it here would only move the problem downstream.
+#:
+#: Excluding it is therefore stricter than consumer 2, in the safe direction: everything this flags,
+#: consumer 2 either refuses outright or should never have been handed. The same over-approximation
+#: covers `Enum.TryParse`'s numeric and comma-separated forms (`"2"`, `"Summonable, EventOnly"`), which
+#: also parse in C# and are equally unauthorable - and a bare digit in a closed enum field is exactly
+#: the numeric-smuggling shape `anchor/audit.py` exists to catch.
+C_SHARP_ACQUISITION_FLAGS = ACQUISITION
+
+#: The classification pipeline's own literal `"unresolved"`, which `SpeciesExpander.UnresolvedFields`
+#: reports and the caller SKIPS on before calling `Expand`. A skip is not a raise, so it is NOT a
+#: violation — and because the caller skips the whole species on ANY one of these five fields, one
+#: sentinel shadows every `Expand` guard for that entry. See `csharp_anchor_skipped_fields`.
+C_SHARP_UNRESOLVED_SENTINEL = "unresolved"
+
+#: The five fields `SpeciesExpander.UnresolvedFields` inspects, in its own order.
+C_SHARP_SKIP_FIELDS = ("rarity", "aptitudePrimary", "elementPrimary", "attackTempo", "deployMode")
+
+
+def _folded(value: object) -> str:
+    """`value` trimmed and lower-cased — how `CreatureRarityIds.TryParse`, `CreatureRankIds.TryParse`
+    and `ElementRoster.TryParse` all read their argument (`(value ?? "").Trim().ToLowerInvariant()`)."""
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _ordinal(value: object) -> str:
+    """`value` verbatim — how the `attackTempo`/`reach` lookup (`StringComparer.Ordinal` over
+    `creature-shape.v1.json`) and the `aptitudePrimary` edge match (`StringComparison.Ordinal`) read
+    theirs. Neither trims, neither folds case: `" steady"` and `"steady"` are different keys."""
+    return value if isinstance(value, str) else ""
+
+
+def _is_member(value: object, vocabulary: "tuple[str, ...]", *, folded: bool) -> bool:
+    read = _folded if folded else _ordinal
+    return read(value) in vocabulary
+
+
+def _str_or_report(fields: "dict", key: str, out: "list[str]") -> "str | None":
+    """The `AnchorRowReader.Str` guard for one key: report `anchor: missing or non-string '{key}'`
+    unless the value is a JSON string.
+
+    Returns the value, or `None` when the guard fired. That `None` is load-bearing and is why this
+    is sequencing rather than short-circuiting: the consumer raises at `Str` and NEVER reaches any
+    later guard on the same field, so a second complaint about the same value would be reporting a
+    refusal the consumer does not make — `reach: absent` is ONE defect, not a missing field AND an
+    unknown reach. Every field is still checked, and every field's guards are still evaluated
+    whenever the consumer would actually evaluate them.
+    """
+    value = fields.get(key)
+    if not isinstance(value, str):
+        out.append(f"anchor: missing or non-string '{key}'")
+        return None
+    return value
+
+
+def csharp_anchor_consumer_violations(fields: "object") -> "tuple[str, ...]":
+    """Every shape the C# anchor consumer refuses, as ONE predicate — the sibling of
+    `seed_consumer_violations`, and every guard evaluated with no short-circuit across guards,
+    because this consumer's own CLI is fail-fast: `CreatureRecipeReconcileInput/Program.cs` prints
+    the first rejection and `return 1`s, abandoning the rest of the load. That is precisely why an
+    earlier repair programme cost four serial rounds against this consumer, each round discovering
+    the next guard. Collapsing it back to one pass is the entire point of this function.
+
+    Transcribed by GUARD NAME, never by line number, for the reason `seed_consumer_violations`'s
+    docstring gives: line citations rotted inside the very edit that added them, and
+    `test_csharp_anchor_consumer_contract.py` asserts the coverage against these names.
+
+    -- STAGE 1: `AnchorRowReader.ReadAll` (file level, so NOT expressible per entry; see
+       `csharp_anchor_corpus_violations`, which does check them) --------------------------
+
+        anchor file: not valid JSON
+        anchor file: expected a top-level array
+
+    -- STAGE 2: `AnchorRowReader.ReadOne` -------------------------------------------------
+
+        anchor record must be an object       every element of the top-level array is a JSON object
+        anchor: missing or non-string '{k}'   for EACH of the eleven C_SHARP_STR_FIELDS
+        anchor: missing or non-integer 'gameTypeId'
+
+    -- STAGE 3: `SpeciesExpander.Expand` (only reached when stage 2 passed for every field) ------
+
+        rarity '{v}' is not a known CreatureRarity
+        aptitudePrimary '{v}' has no edge in aptitudes.v2.json
+        aptitudeSecondary '{v}' has no edge in aptitudes.v2.json
+        attackTempo '{v}' has no entry in creature-shape.v1.json
+        reach '{v}' has no entry in creature-shape.v1.json
+        elementPrimary '{v}' is not a known element
+        elementSecondary '{v}' is not a known element
+        deployMode '{v}' is not a known CreatureDeployMode
+        acquisition '{v}' is not a known CreatureAcquisition
+        rank '{v}' is not a known CreatureRank
+
+    -- THE TWO ORDERING RULES THAT KEEP THE THREE STAGES HONEST ------------------------------
+    Both are faithful to the consumer's own control flow, and both were measured against the corpus
+    rather than assumed — the first draft of this function got both wrong and each one invented
+    violations that `CreatureRecipeReconcileInput.exe` never reports.
+
+    1. A `Str` guard shadows its own field's stage-3 guard (`_str_or_report` says why). This is the
+       difference between the two defect modes the corpus actually contains: `attackTempo: ""` is
+       present-and-wrong and fails ONLY at the membership lookup, while `reach` absent fails ONLY at
+       presence. Empty string is not exempt from either — `Str` accepts "" happily — so the two
+       vocabularies of failure stay distinct in the wording, and a caller fixing one has different
+       work from a caller fixing the other.
+    2. ONE `UnresolvedFields` sentinel shadows the WHOLE stage 3, because the caller skips the entire
+       species before `Expand` is called. Reported separately by `csharp_anchor_skipped_fields`, and
+       deliberately NOT a violation: refusing it would be refusing an entry consumer 2 silently
+       drops, which is a real defect of a different kind (a lost species, not a rejected file).
+
+    -- CONSIDERED AND DELIBERATELY NOT GUARDS ----------------------------------------------
+    Named here so a reader can tell an omission from an oversight:
+
+        `AnchorRowReader.StrArray` (`variants`, `acquisition`, `traits`) silently defaults to an
+            EMPTY list for a missing or non-array key; it never raises. A missing `acquisition`
+            therefore reaches `Expand` as no flags at all — which `CreatureSpeciesCatalog`'s own
+            validation later refuses, but not these two stages. Inventing a guard here would claim a
+            refusal this consumer does not make. Measured: `acquisition` is ABSENT on 304 of 904
+            entries today, all of them invisible to these stages.
+        `AnchorRowReader`'s `threatBand`, `pure` and `speciesKind`, and a NON-STRING `rank`, all
+            degrade to null/false and never raise.
+        `speciesId`, `side` and `targetPreference` are presence-guarded and nothing more — `Expand`
+            reads none of them through a vocabulary, so a present-but-unknown value is not a defect
+            at these stages.
+        `Enum.TryParse` also accepts a numeric string and a comma-separated flag list, and trims its
+            argument. See `C_SHARP_ACQUISITION_FLAGS` for why this predicate stays strict there.
+
+    Returns human-readable violations; an empty tuple means the entry survives every guard. Never
+    raises on a malformed value: a bad row must become a refusal, not a `TypeError` out of the run.
+    """
+    if not isinstance(fields, dict):
+        return (f"anchor record must be an object, not {type(fields).__name__}",)
+
+    out: "list[str]" = []
+
+    # ---- STAGE 2: presence and shape -------------------------------------------------------
+    values: "dict[str, str | None]" = {
+        key: _str_or_report(fields, key, out) for key in C_SHARP_STR_FIELDS
+    }
+    game_type_id = fields.get("gameTypeId")
+    # `bool` is an int in Python and a JSON `true` is not a number to C#'s TryGetInt32, so exclude it
+    # explicitly rather than let `isinstance` quietly disagree with the consumer.
+    if isinstance(game_type_id, bool) or not isinstance(game_type_id, int):
+        out.append("anchor: missing or non-integer 'gameTypeId'")
+
+    # ---- STAGE 3: only if the consumer would actually get there ------------------------------
+    # `UnresolvedFields` is checked BEFORE stage 3, not after, because it is what decides whether
+    # stage 3 happens at all.
+    if any(fields.get(key) == C_SHARP_UNRESOLVED_SENTINEL for key in C_SHARP_SKIP_FIELDS):
+        return tuple(out)
+
+    def _member_guard(key: str, vocabulary: "tuple[str, ...]", complaint: str, *,
+                      folded: bool) -> None:
+        value = values.get(key)
+        if value is not None and not _is_member(value, vocabulary, folded=folded):
+            out.append(complaint.format(value=repr(value)))
+
+    # Folded reading: the three TryParse switch statements trim and lower-case their argument.
+    _member_guard("rarity", RARITY, "rarity {value} is not a known CreatureRarity", folded=True)
+    _member_guard(
+        "elementPrimary", ELEMENTS, "elementPrimary {value} is not a known element", folded=True)
+
+    # Ordinal reading: `string.Equals(e.Source, family, Ordinal)`, and `StringComparer.Ordinal` over
+    # `creature-shape.v1.json`'s own table. Neither trims, neither folds case.
+    _member_guard(
+        "aptitudePrimary", APTITUDES,
+        "aptitudePrimary {value} has no edge in aptitudes.v2.json", folded=False)
+    _member_guard(
+        "attackTempo", ATTACK_TEMPO,
+        "attackTempo {value} has no entry in creature-shape.v1.json", folded=False)
+    _member_guard(
+        "reach", REACH, "reach {value} has no entry in creature-shape.v1.json", folded=False)
+    _member_guard(
+        "deployMode", DEPLOY_MODE,
+        "deployMode {value} is not a known CreatureDeployMode", folded=False)
+
+    # ---- the two secondary fields: same `Str` guard, then their own null mapping ---------------
+    # The reader maps the `none` sentinel to null with a case-INSENSITIVE, UNTRIMMED comparison, so
+    # `None`/`NONE` are exempt and a value with surrounding whitespace is not.
+    element_secondary = values.get("elementSecondary")
+    if element_secondary is not None and \
+            element_secondary.lower() != C_SHARP_NONE_SENTINEL and \
+            not _is_member(element_secondary, ELEMENTS, folded=True):
+        out.append(f"elementSecondary {element_secondary!r} is not a known element")
+
+    # `Expand` gates the secondary-apptitude edge check on `hasSecondary` — `not pure` AND a
+    # non-null secondary — and says why in a comment there: a pure species carries zero secondary
+    # share by construction, so a garbage `aptitudeSecondary` on a pure anchor is INERT and must not
+    # refuse generation for a value the math never reads. Mirroring the gate is the whole fidelity
+    # question on this field; checking it unconditionally would invent refusals.
+    aptitude_secondary = values.get("aptitudeSecondary")
+    if aptitude_secondary is not None and fields.get("pure") is not True and \
+            aptitude_secondary.lower() != C_SHARP_NONE_SENTINEL and \
+            not _is_member(aptitude_secondary, APTITUDES, folded=False):
+        out.append(
+            f"aptitudeSecondary {aptitude_secondary!r} has no edge in aptitudes.v2.json")
+
+    # ---- acquisition: a flag ARRAY, each flag parsed on its own -------------------------------
+    acquisition = fields.get("acquisition")
+    if isinstance(acquisition, list):
+        for flag in acquisition:
+            # A non-string element can only come from a hand-edit: `StrArray` would have stringified
+            # it to "" and then refused it at the enum parse, so refusing it here agrees.
+            if not isinstance(flag, str) or not _is_member(
+                    flag, C_SHARP_ACQUISITION_FLAGS, folded=False):
+                out.append(f"acquisition {flag!r} is not a known CreatureAcquisition")
+
+    # ---- rank: gated on being a string at all, and on not being the `unresolved` sentinel ------
+    # A non-string `rank` never reaches `ResolveRank` (the reader's own `ValueKind == String` test
+    # makes it null), and the literal `"unresolved"` maps to null too — both skipped, exactly as
+    # `ResolveRank`'s early return does.
+    rank = fields.get("rank")
+    if isinstance(rank, str) and rank.lower() != C_SHARP_UNRESOLVED_SENTINEL and \
+            not _is_member(rank, RANK, folded=True):
+        out.append(f"rank {rank!r} is not a known CreatureRank")
+
+    return tuple(out)
+
+
+def csharp_anchor_skipped_fields(fields: "object") -> "tuple[str, ...]":
+    """The fields `SpeciesExpander.UnresolvedFields` reports — the classification pipeline's own
+    literal `"unresolved"`, which its caller SKIPS on before calling `Expand`.
+
+    Separate from `csharp_anchor_consumer_violations` on purpose, and the separation is the point: a
+    skip is not a refusal. Folding the two together would either refuse entries consumer 2 loads
+    today, or — worse, and much less visibly — let a caller read an empty violation tuple as "the C#
+    side reconciles this species" when the truth is "the C# side silently drops it". Both sentences
+    are true about different species, and only this one is true about this one.
+
+    A caller that wants "will consumer 2 reconcile this species?" must ask BOTH functions. That is
+    the reason they are separate and that is why neither calls the other.
+
+    The comparison is an exact case-sensitive `==` in C#, which is why `"Unresolved"` is NOT a skip
+    and IS refused by the sibling predicate as an unknown rarity.
+    """
+    if not isinstance(fields, dict):
+        return ()
+    return tuple(key for key in C_SHARP_SKIP_FIELDS
+                 if fields.get(key) == C_SHARP_UNRESOLVED_SENTINEL)
+
+
+def csharp_anchor_corpus_violations(document: object, *, path: str = "<corpus>") -> "tuple[str, ...]":
+    """`AnchorRowReader.ReadAll`'s two file-level guards, plus the per-entry guard for every row.
+
+    `csharp_anchor_consumer_violations` is per-entry, and `ReadAll`'s first two guards are about the
+    FILE — a document that is not valid JSON, or is not a top-level array, never produces an entry to
+    pass it. Checking them only in prose is how a shape that cannot reach the predicate stays
+    unchecked, so they are checked here, where a corpus scan actually holds a whole document.
+
+    `path` is quoted in every message so a scan over 464 files names the file, the way the consumer's
+    own `Program.cs` does before it returns 1.
+    """
+    if not isinstance(document, list):
+        return (f"{path}: anchor file: expected a top-level array, not "
+                f"{type(document).__name__}",)
+    out: "list[str]" = []
+    for index, row in enumerate(document):
+        for violation in csharp_anchor_consumer_violations(row):
+            where = row.get("speciesId") if isinstance(row, dict) else None
+            label = f"{where}" if isinstance(where, str) and where else f"index {index}"
+            out.append(f"{path}: {label}: {violation}")
     return tuple(out)

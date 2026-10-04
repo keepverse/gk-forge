@@ -30,6 +30,7 @@ from ..anchor.emit import build_index, entry_for, render_index, write_family_fil
 from ..anchor.prompts import PIPELINES, SpeciesLore, threat_audit_spec_for_basis
 from ..anchor.schema import (  # reused, never re-transcribed
     ELEMENTS,
+    csharp_anchor_consumer_violations,
     seed_consumer_violations,
 )
 from ..anchor.provenance import PROMPT_VERSIONS, AnchorProvenance, ReleadProvenance
@@ -1208,6 +1209,17 @@ def _run_loop(
         effective = {k: v for k, v in (merge_from or {}).items() if not k.startswith("_")}
         effective.update(merged)
         violations = seed_consumer_violations(effective)
+        # The SECOND consumer, as a sibling and never as an extension: the C# anchor reader
+        # (`AnchorRowReader.ReadOne` + `SpeciesExpander.Expand`) is a different reader with a
+        # different raise set, and the corpus was valid for consumer 1 while failing consumer 2 on
+        # 222 entries - which took gk-core's `RealAnchorCorpusFixture` static initialiser down with
+        # it, 133 tests, over one missing `aptitudeSecondary`. Its own CLI is fail-fast (first
+        # rejection prints and returns 1), so every guard is evaluated and every violation joined
+        # into the ONE refusal below: a caller fixing a species must not have to discover the next
+        # guard on the next run. `+=` keeps the consumer-1 line above verbatim - the two predicates
+        # stay independently testable, and merging them would widen consumer 1's refuse set to
+        # fields it does not read.
+        violations += csharp_anchor_consumer_violations(effective)
         if violations:
             record.failed.append(species_id)
             _remember_failure(
