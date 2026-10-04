@@ -100,7 +100,7 @@ def main() -> int:
     (OUTPUT_DIR / "all.json").write_text(
         json.dumps({"schemaVersion": 1, "kind": "affix", "_meta": {"partition": "all"},
                     "entries": entries}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
     print(f"\nwrote {len(entries)} total entries ({len(all_fresh)} new) to {OUTPUT_DIR / 'all.json'}")
     if all_unresolved:

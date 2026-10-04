@@ -153,7 +153,7 @@ def main() -> int:
             json.dumps({"schemaVersion": 1, "kind": "container",
                         "_meta": {"pipeline": "species-effects", "partition": "pilot-batch"},
                         "entries": by_side[side]}, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
         print(f"wrote {len(by_side[side])} entries to {path}")
 
     return 0
