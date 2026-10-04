@@ -163,7 +163,35 @@ def test_the_filler_reads_the_pipelines_own_declared_attributes_so_it_cannot_inv
 
     draft = _fill_unanswered({"attackTempo": "quick"}, PIPELINES["kit-shape"])
     assert draft == {"attackTempo": "quick", "reach": "unresolved",
-                     "targetPreference": "unresolved", "resourceProfile": "unresolved"}
+                     "targetPreference": "unresolved"}
+    # `resourceProfile` is declared by the same pipeline and is deliberately NOT filled: it is an
+    # array, and writing the string `"unresolved"` into it would be strictly worse than leaving it
+    # absent, which is what `StrArray` already reads it as.
+    assert "resourceProfile" not in draft
+
+
+def test_an_array_valued_declared_attribute_is_never_given_a_string_filler():
+    """Regression for a shape bug the stage-4 `acquisition` guard exposed. `_fill_unanswered` filled
+    EVERY omitted declared attribute with a string, so `deployment`'s `acquisition` — an array of
+    flags with `minItems: 1` — would have received the literal `"unresolved"`. Both consumers expect a
+    list there and `CreatureSpeciesCatalog` iterates it, so a bare string silently changes meaning.
+
+    Decided by reading the schema's own `type`, so a newly array-typed attribute is skipped without
+    anyone editing a list here.
+    """
+    from seedsmith.adapters.creatures.run.orchestrator import _fill_unanswered
+
+    spec = PIPELINES["deployment"]
+    assert spec.attributes == ("deployMode", "acquisition")
+    assert spec.schema["properties"]["acquisition"].get("type") == "array"
+
+    filled = _fill_unanswered({}, spec)
+    assert filled["deployMode"] == "unresolved"
+    assert "acquisition" not in filled, (
+        "FAIL-BEFORE: acquisition received the string 'unresolved' where the schema and both "
+        "consumers require a list")
+    for value in filled.values():
+        assert isinstance(value, str), filled
 
 
 def test_a_field_whose_vocabulary_declares_a_null_gets_it_instead_of_the_failure_sentinel():
