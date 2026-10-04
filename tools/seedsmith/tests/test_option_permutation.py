@@ -69,6 +69,42 @@ def test_three_way_split_is_unresolved_not_first():
     assert r.minority is None
 
 
+def test_three_blank_samples_are_NOT_a_unanimous_vote_for_the_empty_string():
+    """Measured 2026-10-04 against the real corpus: 157 entries across three voted fields carried
+    `""` — 102 `attackTempo`, 41 `aptitudePrimary`, 14 `deployMode` — every one of them written with
+    `_provenance.confidence` reading `high` and `attempts: 1`.
+
+    `Counter` cannot tell "three people said nothing" from "three people agreed", so a model reply
+    that omitted the field (the orchestrator reads each sample as `draft.get(field) or ""`) resolved
+    to `VoteResult("", "high")` and the empty string went into the anchor as a real judgement. No
+    consumer can load it: `SpeciesExpander` looks the value up in a closed vocabulary and refuses
+    it, so the C# tool exits 1 on the first such entry.
+
+    FAIL-BEFORE: `resolve_vote(["", "", ""]) == VoteResult("", "high", None)`.
+    """
+    for blanks in (["", "", ""], ["", "  ", "\t"]):
+        assert resolve_vote(blanks) == VoteResult(
+            value=None, confidence="unresolved", minority=None), blanks
+
+
+def test_a_single_answer_among_three_blanks_is_still_not_a_vote():
+    """The spec's own prohibition is on taking `values[0]`; reporting the one real answer would be
+    that failure in a new costume, and a 1-of-3 answer is not evidence."""
+    r = resolve_vote(["fire", "", ""])
+    assert r == VoteResult(value=None, confidence="unresolved", minority=None)
+
+
+def test_a_blank_can_never_win_or_be_recorded_as_a_minority():
+    """Two real answers decide it; the blank is not a candidate, so it can neither manufacture
+    agreement nor be persisted as the minority value in provenance."""
+    r = resolve_vote(["fire", "fire", ""])
+    assert r.value == "fire"
+    assert r.minority is None
+    assert r.confidence == "split", "two of three answers is a split, never 'high'"
+    assert resolve_vote(["fire", "ice", ""]).value is None
+    assert resolve_vote(["fire", "ice", ""]).minority is None
+
+
 def test_resolve_vote_requires_exactly_three():
     import pytest
     with pytest.raises(ValueError):

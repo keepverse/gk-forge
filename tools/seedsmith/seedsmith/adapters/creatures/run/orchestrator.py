@@ -53,6 +53,39 @@ def _permutable_field(pipeline_id: str, basis: str) -> "tuple[str, tuple[str, ..
     return _PERMUTABLE_FIELD.get(pipeline_id)
 
 
+#: What a declared attribute the model never answered is written as. One honest spelling of "no
+#: answer came back" — the same string the vote path already writes for a split it could not resolve
+#: (`draft[field_name] = vote.value ... else "unresolved"`), and the same one
+#: `anchor/emit.py` documents as the rule ("a missing key must not mean 'unsure'").
+#:
+#: Measured 2026-10-04 against the real corpus: 280 entries were missing an attribute its own
+#: pipeline had RUN — 84 `aptitudeSecondary`, 88 `elementSecondary`, and 54 each of `reach` and
+#: `targetPreference`, every one of them on an entry whose `_provenance.attempts` recorded the
+#: owning pipeline at the current prompt version. Nothing dropped them: the merge loop below folds in
+#: whatever keys the draft happens to carry, so a reply that omitted a `required` key produced an
+#: entry with the key simply ABSENT. Two of those fields (`reach`, `targetPreference`) are required
+#: by the C# anchor reader, so the absence is not cosmetic — the whole C# tool exits 1 on the first
+#: such entry and abandons the load.
+#:
+#: Before this, an omission was invisible in the only place anyone would have looked: `_provenance`
+#: recorded `attempts: 1` and a `confidence` entry, both of which read like a completed judgement.
+NO_ANSWER = "unresolved"
+
+
+def _fill_unanswered(draft: "dict[str, Any]", attributes: "tuple[str, ...]") -> "dict[str, Any]":
+    """Every declared attribute the draft omitted becomes an explicit `NO_ANSWER`.
+
+    The keys it adds are the pipeline's OWN declared `attributes`, read from the same `PipelineSpec`
+    whose per-call JSON Schema marks them `required` — so this cannot invent a field, and it cannot
+    drift from the spec: rename an attribute and this follows. `blocked` is untouched (the merge loop
+    drops it), as is any attribute the draft did answer.
+    """
+    for attribute in attributes:
+        if attribute not in draft:
+            draft[attribute] = NO_ANSWER
+    return draft
+
+
 def _invoke(
     pipeline_id: str, lore: SpeciesLore, *, basis: str, context: "dict[str, Any]",
     field_order: "tuple[str, ...] | None", call: "Callable[..., str] | None", config: LlmCallerConfig,
@@ -126,7 +159,8 @@ def run_one_species(
             outcomes[pipeline_id] = result.get("outcome", "escalated")
             pipeline_attempts[pipeline_id] = int(result.get("attempts", 1))
             calls_made += pipeline_attempts[pipeline_id]  # repair rounds are real calls too
-            draft = dict(result.get("draft") or {})
+            draft = _fill_unanswered(
+                dict(result.get("draft") or {}), PIPELINES[pipeline_id].attributes)
         else:
             field_name, vocab = perm
             samples: "list[str]" = []
@@ -148,8 +182,9 @@ def run_one_species(
             pipeline_attempts[pipeline_id] = primary_attempts  # sample 0's — matches its outcome/draft
             vote = resolve_vote(samples)
             votes[field_name] = vote
-            draft = primary_draft or {}
-            draft[field_name] = vote.value if vote.value is not None else "unresolved"
+            draft = _fill_unanswered(
+                dict(primary_draft or {}), PIPELINES[pipeline_id].attributes)
+            draft[field_name] = vote.value if vote.value is not None else NO_ANSWER
 
         for key, value in draft.items():
             if key == "blocked":

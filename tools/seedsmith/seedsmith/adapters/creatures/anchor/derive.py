@@ -236,8 +236,16 @@ def resolve_unresolved_aptitude(aptitude: str, *, default: str) -> "tuple[str, b
 
     Returns `(value, was_deterministic)`, same contract as the other `resolve_unresolved_*`
     functions, so a caller can stamp honest provenance (`"deterministic-fallback"`, never faked as
-    a real LLM judgment)."""
-    if aptitude != "unresolved":
+    a real LLM judgment).
+
+    **A blank value is an unresolved value** (measured 2026-10-04: 41 real entries carried
+    `aptitudePrimary: ""`). `resolve_vote` now refuses to resolve a blank to a value, but the 41
+    already-written entries predate that, and a resolver that only recognises the literal
+    `"unresolved"` would leave them stranded forever — the same defect the three-unresolved fix
+    exists to close, reached by a different spelling. Blank and `"unresolved"` are the same
+    statement ("no answer came back") and are treated identically here and in `resolve_vote`.
+    """
+    if isinstance(aptitude, str) and aptitude.strip() and aptitude != "unresolved":
         return aptitude, False
     return default, True
 
@@ -277,7 +285,7 @@ def resolve_secondary_element_from_fusion_lineage(
     (that tag means "no real signal existed"; this one means "real cross-species signal existed
     and was used") and never faked as a real LLM judgment.
     """
-    if element_secondary not in ("none", ""):
+    if element_secondary not in ("none", "", None, "unresolved"):
         return element_secondary, False
     candidates = {e for e in (input_a_element, input_b_element) if e and e != element_primary}
     if len(candidates) != 1:

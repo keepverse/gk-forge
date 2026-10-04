@@ -113,3 +113,56 @@ def test_pause_resume_makes_no_new_model_call_for_already_completed_species():
     second = run_selection(remaining, {"b": LORE_B}, {"b": "inferred"}, call=call_b)
     assert second["completed"] == ["b"]
     assert len(calls_second_pass) == 20  # only "b"'s own calls — "a" was never re-touched
+
+
+# =================================================================================================
+# A declared attribute the model never answered must be WRITTEN DOWN as unanswered, not omitted
+# =================================================================================================
+
+def test_a_declared_attribute_the_model_omitted_is_written_not_absent():
+    """Measured 2026-10-04 against the real corpus: 280 entries were missing an attribute its own
+    pipeline had RUN — 84 `aptitudeSecondary`, 88 `elementSecondary`, 54 each of `reach` and
+    `targetPreference`, every one on an entry whose `_provenance.attempts` recorded the owning
+    pipeline at the current prompt version.
+
+    Nothing dropped them. The merge loop folds in whatever keys the draft happens to carry, so a
+    reply that omitted a `required` key produced an entry with that key simply ABSENT — and
+    `_provenance` still read `attempts: 1` with a `confidence` entry, so nothing anywhere recorded
+    that the model had not answered. Two of those fields (`reach`, `targetPreference`) are required
+    by the C# anchor reader, which is why the whole C# tool exits 1 on the first such entry and
+    abandons the load.
+
+    FAIL-BEFORE: `"reach" not in result`.
+    """
+    def omits_reach(system, user, *, config=None, schema=None):
+        out = json.loads(always_valid_call(system, user, config=config, schema=schema))
+        if "reach" in (schema or {}).get("properties", {}):
+            out.pop("reach", None)          # the model simply did not answer these two
+            out.pop("targetPreference", None)
+        return json.dumps(out)
+
+    result = run_one_species("a", LORE_A, basis="inferred", call=omits_reach)
+
+    assert result["reach"] == "unresolved", (
+        "an unanswered declared attribute must be recorded explicitly; an absent key is "
+        "indistinguishable from 'never ran this pipeline', which is what hid this across the corpus")
+    assert result["targetPreference"] == "unresolved"
+    # And the fields the stub DID answer are untouched — this is a fill, not a replacement.
+    assert result["elementPrimary"] == "fire"
+    assert result["attackTempo"] in {"ponderous", "slow", "steady", "quick", "flurry"}
+
+
+def test_the_filler_reads_the_pipelines_own_declared_attributes_so_it_cannot_invent_a_field():
+    """The attributes come from the same `PipelineSpec` whose per-call JSON Schema marks them
+    `required`, so rename one and this follows. An attribute nobody declared is left absent."""
+    from seedsmith.adapters.creatures.run.orchestrator import NO_ANSWER, _fill_unanswered
+
+    assert NO_ANSWER == "unresolved"
+    assert PIPELINES["kit-shape"].attributes == (
+        "attackTempo", "reach", "targetPreference", "resourceProfile")
+
+    draft = _fill_unanswered({"attackTempo": "quick"}, PIPELINES["kit-shape"].attributes)
+    assert draft == {"attackTempo": "quick", "reach": "unresolved",
+                     "targetPreference": "unresolved", "resourceProfile": "unresolved"}
+    # Not a declared attribute: untouched, so nothing is written that no schema asked for.
+    assert _fill_unanswered({}, ("attackTempo",)) == {"attackTempo": "unresolved"}

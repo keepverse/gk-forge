@@ -166,6 +166,56 @@ def test_a_missing_field_fills_exactly_like_a_vote_split():
     assert value == classify(seed, tuning).id
 
 
+def test_an_unresolved_aptitude_fills_from_the_real_fallback_table():
+    default = load_aptitude_fallback()
+    assert resolve_unresolved_aptitude("unresolved", default=default) == (default, True)
+    assert resolve_unresolved_aptitude("Might", default=default) == ("Might", False)
+
+
+def test_a_BLANK_aptitude_is_treated_exactly_like_the_unresolved_sentinel():
+    """Measured 2026-10-04: 41 real entries carried `aptitudePrimary: ""`, written by a `resolve_vote`
+    that could not tell three non-answers from three agreements.
+
+    `resolve_vote` now refuses to resolve a blank to a value, so no NEW blank is produced — but the
+    41 already written predate that, and a resolver that recognised only the literal `"unresolved"`
+    would strand them permanently: the same defect the three-unresolved fix exists to close, reached
+    by a different spelling. Blank and `"unresolved"` are the same statement ("no answer came back").
+
+    FAIL-BEFORE: `("", )` was returned unchanged with `was_deterministic=False`, so
+    `creatures run fix-unresolved` reported 0 fixes and the 41 entries could not be closed at all.
+    """
+    default = load_aptitude_fallback()
+    for blank in ("", "   ", "\t\n"):
+        assert resolve_unresolved_aptitude(blank, default=default) == (default, True), repr(blank)
+    # A real answer is still passed through untouched — this is not "anything falsy is unresolved".
+    assert resolve_unresolved_aptitude("Agility", default=default) == ("Agility", False)
+
+
+def test_the_fusion_lineage_resolver_treats_an_ABSENT_secondary_as_no_secondary():
+    """`fix-secondary-from-fusion` reads `entry.get("elementSecondary", "none")`, so an ABSENT key
+    already arrives here as `"none"` — but 88 real entries had no key at all, and the resolver's own
+    guard (`not in ("none", "")`) treated `None` as "already real" and returned it untouched. An
+    absent value, `""`, and the literal `"none"` are one statement: no secondary element recorded.
+
+    FAIL-BEFORE: `resolve_secondary_element_from_fusion_lineage(None, "fire",
+    input_a_element="ice", input_b_element="fire")` returned `(None, False)`.
+    """
+    from seedsmith.adapters.creatures.anchor.derive import (
+        resolve_secondary_element_from_fusion_lineage as lineage,
+    )
+
+    # Exactly one parent differs from the output's primary -> that parent is the real signal.
+    for empty in (None, "", "none", "unresolved"):
+        assert lineage(empty, "fire", input_a_element="ice", input_b_element="fire") == ("ice", True)
+    # Both parents agree with the output: real evidence this species is single-typed, not a gap.
+    assert lineage(None, "fire", input_a_element="fire", input_b_element="fire")[1] is False
+    # Two disagreeing parents: neither can be trusted, so it is left unresolved, never guessed.
+    assert lineage(None, "fire", input_a_element="ice", input_b_element="air")[1] is False
+    # An already-real value is never overwritten.
+    assert lineage("light", "fire", input_a_element="ice", input_b_element="dark") == (
+        "light", False)
+
+
 # ---- resolve_unresolved_rarity (2026-09-07, creature-corpus-self-heal Phase H, owner-directed) -----
 #
 # Rarity is this game's OWN mechanism, not an almanac/PvZ property — when the identity pipeline's

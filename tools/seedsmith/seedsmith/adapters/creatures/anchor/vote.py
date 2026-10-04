@@ -19,27 +19,59 @@ VOTED_FIELDS = frozenset({"elementPrimary", "aptitudePrimary", "rarity", "threat
 @dataclass(frozen=True)
 class VoteResult:
     value: "str | None"        # None only when confidence == "unresolved"
-    confidence: str            # "high" (3-0) | "split" (2-1) | "unresolved" (1-1-1)
+    confidence: str            # "high" (3-0) | "split" (2-1) | "unresolved" (1-1-1, or too few answers)
     minority: "str | None"     # the minority value, recorded — only set when confidence == "split"
+
+
+#: The empty string is a NON-ANSWER, not a value. The orchestrator reads each sample with
+#: `draft.get(field_name) or ""`, so a model reply that omits the field — or returns it empty —
+#: reaches this module as `""`.
+BLANK_SAMPLE = ""
 
 
 def resolve_vote(values: Sequence[str]) -> VoteResult:
     """Exactly three samples in. A 1-1-1 split is a genuine ambiguity signal, not a default —
     it never silently takes `values[0]` (spec §4's explicit warning: "the obvious way to build
-    this wrong")."""
+    this wrong").
+
+    **A blank sample is not a vote** (measured 2026-10-04 against the real corpus: 157 entries
+    across three voted fields carried `""`). Three non-answers used to resolve to
+    `VoteResult("", "high")` — a unanimous, HIGH-CONFIDENCE vote for the empty string — because
+    `Counter` cannot tell "three people said nothing" from "three people agreed". The empty string
+    was then written to the anchor as though it were a real judgement, and its provenance read
+    `confidence: high` / `attempts: 1`, so nothing anywhere recorded that the model had not
+    answered. No consumer can load the result: `SpeciesExpander` looks the value up in a closed
+    vocabulary and refuses it, so the C# tool exits 1 on the first such entry and abandons the
+    whole load.
+
+    The rule: **blank samples are excluded from the tally and are never recorded as a value or as a
+    minority**, and with fewer than two real answers left the field is `unresolved`. Never `"high"`
+    on the strength of fewer than three answers, never `values[0]`, never `""`. This is the same
+    discipline `resolve_set_vote` applies to a heal-exhausted `None` sample, for the same reason:
+    a sample that did not answer must not be able to manufacture agreement.
+    """
     if len(values) != 3:
         raise ValueError(f"resolve_vote needs exactly 3 samples, got {len(values)}")
 
-    counts = Counter(values)
-    ranked = counts.most_common()
-    top_value, top_count = ranked[0]
+    answers = [v for v in values if isinstance(v, str) and v.strip() != BLANK_SAMPLE]
+    if len(answers) < 2:
+        # Zero or one real answer out of three. A single answer is NOT a vote, and reporting it
+        # would be the "never silently take values[0]" failure in a new costume.
+        return VoteResult(value=None, confidence="unresolved", minority=None)
 
-    if top_count == 3:
+    counts = Counter(answers)
+    top_value, top_count = counts.most_common()[0]
+
+    if top_count == len(values):
         return VoteResult(value=top_value, confidence="high", minority=None)
-    if top_count == 2:
-        minority_value = next(v for v in values if v != top_value)
-        return VoteResult(value=top_value, confidence="split", minority=minority_value)
-    # 1-1-1: every value distinct, top_count == 1.
+    if top_count >= 2:
+        # `next(...)` alone would raise StopIteration here: when blanks were excluded, the
+        # remaining answers can all BE the top value (["fire", "fire", ""]), so there is no
+        # minority to name. That is `split` with no recorded minority — the agreed answer, reached
+        # on fewer than three answers, which is exactly what "split" means here.
+        minority = next((v for v in answers if v != top_value), None)
+        return VoteResult(value=top_value, confidence="split", minority=minority)
+    # Every real answer distinct: the same genuine 1-1-1 ambiguity signal as before.
     return VoteResult(value=None, confidence="unresolved", minority=None)
 
 
