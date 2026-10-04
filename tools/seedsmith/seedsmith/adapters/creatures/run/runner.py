@@ -29,6 +29,7 @@ from ..anchor.derive import (
 from ..anchor.emit import build_index, entry_for, render_index, write_family_file
 from ..anchor.prompts import PIPELINES, SpeciesLore, threat_audit_spec_for_basis
 from ..anchor.schema import (  # reused, never re-transcribed
+    DECLARED_NULL,
     ELEMENTS,
     csharp_anchor_consumer_violations,
     seed_consumer_violations,
@@ -672,12 +673,49 @@ def fix_unresolved(*, paths: RunPaths = RunPaths(), dry_run: bool = False) -> "l
         after_aptitude, aptitude_was_fixed = resolve_unresolved_aptitude(
             before_aptitude, default=aptitude_default)
 
-        if not threat_was_fixed and not rarity_was_fixed and not aptitude_was_fixed:
+        # An ABSENT optional-secondary key is a fourth gap, and the only one with a legal answer
+        # rather than a fallback pick. Measured 2026-10-04: 172 entries (88 `elementSecondary`,
+        # 84 `aptitudeSecondary`) had no such key at all although their own pipeline had run at the
+        # current prompt version — a reply that omitted a `required` attribute, merged as-is. Both
+        # fields declare `"none"` as their own vocabulary member (`_enum_prop(nullable=True)`), which
+        # both consumers already map to null, so "the model offered no second nature" is a complete
+        # and honest answer for an absent key.
+        #
+        # It has to be closed here, deterministically and with no model call, because the pre-write
+        # guard judges the MERGED entry: a species whose `reach` is also absent could be written by
+        # NEITHER pipeline — `kit-shape` was refused for the missing secondary, the secondary
+        # pipeline for the missing `reach` — and 71 of 134 `kit-shape` reruns failed that way. This
+        # pass is the only one that can write a field NO pipeline produced.
+        #
+        # Deliberately NOT touching an entry whose `elementSecondary` is already `"none"`: that is a
+        # resolved answer, `fix-secondary-from-fusion` is the pass that may improve it with real
+        # fusion-lineage signal, and rewriting it here would be a no-op with a false provenance claim.
+        # Only a genuinely ABSENT key is filled.
+        secondary_fills = {
+            field: DECLARED_NULL for field in ("elementSecondary", "aptitudeSecondary")
+            if field not in entry
+        }
+
+        if (not threat_was_fixed and not rarity_was_fixed and not aptitude_was_fixed
+                and not secondary_fills):
             continue
 
         species_id = entry.get("speciesId")
         updates: "dict[str, Any]" = {}
         votes: "dict[str, Any]" = {}
+        for field, value in secondary_fills.items():
+            fixed.append({"speciesId": species_id, "field": field,
+                          "before": None, "after": value})
+            updates[field] = value
+            # Not "deterministic-fallback": nothing was derived and nothing was picked. There was no
+            # answer, and this records exactly that — the same honesty standard the resolvers above
+            # stamp ("scored"/"default" say WHICH happened rather than faking a judgement).
+            votes[field] = {"confidence": "declared-null", "minority": None}
+        if "aptitudeSecondary" in secondary_fills:
+            # `pure` is DERIVED from the pair; it was computed from a missing key before, so it is
+            # stale now that the key exists.
+            updates["pure"] = derive_pure(
+                after_aptitude, updates.get("aptitudeSecondary", entry.get("aptitudeSecondary")))
         if threat_was_fixed:
             fixed.append({"speciesId": species_id, "field": "threatBand",
                           "before": before_threat, "after": after_threat})

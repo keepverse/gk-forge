@@ -18,7 +18,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 from ..anchor.prompts import PIPELINES, SpeciesLore
 from ..anchor.permute import order_for
-from ..anchor.schema import APTITUDES, ATTACK_TEMPO, DEPLOY_MODE, ELEMENTS, RARITY, THREAT_BAND
+from ..anchor.schema import (
+    APTITUDES, ATTACK_TEMPO, DECLARED_NULL, DEPLOY_MODE, ELEMENTS, RARITY, THREAT_BAND,
+)
 from ..anchor.vote import VOTED_FIELDS, resolve_vote
 from ....pipeline.llm_caller import LlmCallerConfig
 from ....workflow.graphs.creature_anchor import build_pipeline_graph, state_for_pipeline
@@ -72,17 +74,49 @@ def _permutable_field(pipeline_id: str, basis: str) -> "tuple[str, tuple[str, ..
 NO_ANSWER = "unresolved"
 
 
-def _fill_unanswered(draft: "dict[str, Any]", attributes: "tuple[str, ...]") -> "dict[str, Any]":
-    """Every declared attribute the draft omitted becomes an explicit `NO_ANSWER`.
+def _declared_null(spec: PipelineSpec, attribute: str) -> "str | None":
+    """`anchor.schema.DECLARED_NULL` when the pipeline's own per-call schema declares one for
+    `attribute`.
 
-    The keys it adds are the pipeline's OWN declared `attributes`, read from the same `PipelineSpec`
-    whose per-call JSON Schema marks them `required` — so this cannot invent a field, and it cannot
-    drift from the spec: rename an attribute and this follows. `blocked` is untouched (the merge loop
-    drops it), as is any attribute the draft did answer.
+    A vocabulary's declared "this field has no value" member — `_enum_prop(..., nullable=True)`
+    appends `"none"` for exactly the two optional-secondary fields, and each secondary pipeline's
+    per-call schema repeats it (`list(ELEMENTS) + ["none"]`). It is a legal ANSWER, not a failure
+    marker, and both consumers map it to null.
+
+    Read from the schema rather than from a list here, so this cannot drift from the vocabulary: a
+    field gets it because its schema says so, and a field that stops declaring it stops getting it.
     """
-    for attribute in attributes:
+    enum = ((spec.schema or {}).get("properties") or {}).get(attribute, {}).get("enum")
+    return DECLARED_NULL if isinstance(enum, list) and DECLARED_NULL in enum else None
+
+
+def _fill_unanswered(draft: "dict[str, Any]", spec: PipelineSpec) -> "dict[str, Any]":
+    """Every declared attribute the draft omitted is written down, not left absent.
+
+    WHICH spelling depends on whether the pipeline's OWN schema declares a null for that field, and
+    that distinction is load-bearing rather than cosmetic:
+
+      * a field that declares one (`elementSecondary`, `aptitudeSecondary`) gets `DECLARED_NULL` — a
+        legal answer the consumers already accept, and the true state of affairs: the model offered
+        no second nature.
+      * a field that declares none (`attackTempo`, `reach`, `targetPreference`, `deployMode`) gets
+        `NO_ANSWER`, which is NOT in the vocabulary, so the pre-write guard refuses the entry and
+        the species lands in `failed` with a reason a rerun can act on.
+
+    The uniform `NO_ANSWER` this replaced deadlocked corpus repair against itself. Measured
+    2026-10-04: a species with an absent `reach` AND an absent `aptitudeSecondary` could be written
+    by NEITHER pipeline — `kit-shape` was refused because the secondary was still absent, the
+    secondary pipeline was refused because `reach` was still absent, and neither could go first. 71
+    of 134 `kit-shape` reruns failed exactly that way. A second field that has a legal null must not
+    be able to block the field whose own pipeline owns it.
+
+    The keys it adds are the pipeline's OWN declared `attributes`, so it cannot invent a field and
+    cannot drift from the spec: rename an attribute and this follows. `blocked` is untouched (the
+    merge loop drops it), as is any attribute the draft did answer.
+    """
+    for attribute in spec.attributes:
         if attribute not in draft:
-            draft[attribute] = NO_ANSWER
+            draft[attribute] = _declared_null(spec, attribute) or NO_ANSWER
     return draft
 
 
@@ -160,7 +194,7 @@ def run_one_species(
             pipeline_attempts[pipeline_id] = int(result.get("attempts", 1))
             calls_made += pipeline_attempts[pipeline_id]  # repair rounds are real calls too
             draft = _fill_unanswered(
-                dict(result.get("draft") or {}), PIPELINES[pipeline_id].attributes)
+                dict(result.get("draft") or {}), PIPELINES[pipeline_id])
         else:
             field_name, vocab = perm
             samples: "list[str]" = []
@@ -183,7 +217,7 @@ def run_one_species(
             vote = resolve_vote(samples)
             votes[field_name] = vote
             draft = _fill_unanswered(
-                dict(primary_draft or {}), PIPELINES[pipeline_id].attributes)
+                dict(primary_draft or {}), PIPELINES[pipeline_id])
             draft[field_name] = vote.value if vote.value is not None else NO_ANSWER
 
         for key, value in draft.items():

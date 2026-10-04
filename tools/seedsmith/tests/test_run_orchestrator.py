@@ -161,8 +161,42 @@ def test_the_filler_reads_the_pipelines_own_declared_attributes_so_it_cannot_inv
     assert PIPELINES["kit-shape"].attributes == (
         "attackTempo", "reach", "targetPreference", "resourceProfile")
 
-    draft = _fill_unanswered({"attackTempo": "quick"}, PIPELINES["kit-shape"].attributes)
+    draft = _fill_unanswered({"attackTempo": "quick"}, PIPELINES["kit-shape"])
     assert draft == {"attackTempo": "quick", "reach": "unresolved",
                      "targetPreference": "unresolved", "resourceProfile": "unresolved"}
-    # Not a declared attribute: untouched, so nothing is written that no schema asked for.
-    assert _fill_unanswered({}, ("attackTempo",)) == {"attackTempo": "unresolved"}
+
+
+def test_a_field_whose_vocabulary_declares_a_null_gets_it_instead_of_the_failure_sentinel():
+    """The distinction that stopped corpus repair deadlocking against itself, and it is read from the
+    pipeline's own schema rather than a list here, so it cannot drift from the vocabulary.
+
+    `elementSecondary`/`aptitudeSecondary` declare `"none"` (`_enum_prop(nullable=True)`) — a legal
+    answer both consumers map to null. `reach`/`targetPreference`/`attackTempo` declare nothing, so
+    `"unresolved"` is outside their vocabulary and the pre-write guard refuses the entry, which is
+    what routes it to a rerun.
+
+    FAIL-BEFORE: every one of these got `"unresolved"`, so a species with an absent `reach` AND an
+    absent `aptitudeSecondary` could be written by neither pipeline. Measured: 71 of 134 `kit-shape`
+    reruns failed that way.
+    """
+    from seedsmith.adapters.creatures.run.orchestrator import (
+        DECLARED_NULL, NO_ANSWER, _declared_null, _fill_unanswered,
+    )
+    from seedsmith.adapters.creatures.anchor.schema import DECLARED_NULL as SCHEMA_DECLARED_NULL
+
+    # One value, two names: the reader's spelling and the writer's are the same string.
+    assert DECLARED_NULL == SCHEMA_DECLARED_NULL == "none"
+
+    for pipeline in ("element-secondary", "aptitude-secondary"):
+        spec = PIPELINES[pipeline]
+        assert _declared_null(spec, spec.attributes[0]) == DECLARED_NULL, pipeline
+        filled = _fill_unanswered({}, spec)
+        assert filled[spec.attributes[0]] == DECLARED_NULL, filled
+        # And no field of that pipeline is left with the failure sentinel.
+        assert NO_ANSWER not in filled.values(), filled
+
+    for pipeline, attribute in (("kit-shape", "reach"), ("kit-shape", "targetPreference"),
+                                ("kit-shape", "attackTempo"), ("deployment", "deployMode")):
+        spec = PIPELINES[pipeline]
+        assert _declared_null(spec, attribute) is None, (pipeline, attribute)
+        assert _fill_unanswered({}, spec)[attribute] == NO_ANSWER, (pipeline, attribute)

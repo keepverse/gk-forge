@@ -298,6 +298,14 @@ def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
 #: and a value with surrounding whitespace is NOT.
 C_SHARP_NONE_SENTINEL = "none"
 
+#: The same sentinel, named for the WRITER rather than the reader. `build_anchor_schema` appends it
+#: to exactly the two optional-secondary vocabularies (`_enum_prop(..., nullable=True)`), so it is a
+#: declared MEMBER of those vocabularies — a legal answer, not a failure marker. An ABSENT key on one
+#: of those two fields means the very same thing the sentinel means, so a generator that declines to
+#: answer should write this rather than write nothing. Declared here beside
+#: `C_SHARP_NONE_SENTINEL` so the reader's spelling and the writer's are visibly one value.
+DECLARED_NULL = C_SHARP_NONE_SENTINEL
+
 #: The eleven anchor keys `AnchorRowReader.ReadOne` reads through its `Str` helper, which raises
 #: `anchor: missing or non-string '{key}'` for anything that is not a JSON string. `StrArray` (the other
 #: three keys) is deliberately NOT here - see the docstring of `csharp_anchor_consumer_violations`.
