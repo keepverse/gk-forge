@@ -39,6 +39,10 @@ ACCEPTANCE = [
     "tests/test_family_extract.py",
     "tests/test_family_propose.py",
     "tests/test_family_source_repairs.py",
+    # The one-decider guard: `catalog`'s output must be exactly `consolidate` then
+    # `resolve_unresolved_family`, and the family package must hold no second predicate module.
+    # Added with the removal of the unwired `family/label_rules.py` (33 tests, zero call sites).
+    "tests/test_family_label_refusal.py",
 ]
 
 #: `refusal -> (file, the exact source text that disables it, the exact text that restores the
