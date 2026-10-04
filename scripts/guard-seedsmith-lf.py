@@ -60,13 +60,28 @@ No glob, no prefix, no pattern. Two properties make this durable instead of a sl
 
 SCOPE, AND WHAT WAS DELIBERATELY NOT SWEPT
 ------------------------------------------
-Scope is `seedsmith/**`. `tests/` holds roughly 350 further `write_text` calls that were NOT swept —
-stated here rather than hidden, because it is a separate decision, not an oversight. Two of them are
-structurally blind to this defect and that is worth recording: `test_type_weights.py` and
-`test_characteristic_pool.py` build "frozen snapshots" via `frozen.write_text(src.read_text(...))` and
-then read them back with `read_text()`. `read_text()` applies universal newlines, so both sides of the
-comparison are normalised and the assertion passes whether or not the bytes on disk were LF. Those
-comparisons cannot detect this defect, and changing them is a decision for whoever owns the tests.
+Two roots, and the boundary between them is deliberate:
+
+* `tools/seedsmith/seedsmith/**` — the package, recursive.
+* `tools/seedsmith/*.py` — the top-level driver scripts, NOT recursive, because `tests/` and the
+  package's own children are handled separately (see below).
+
+The second root was added after a re-measurement found the first one was too narrow. Both
+`run_t53_claude_propose.py` (writes `data/seed/creatures/species-effects/{plant,zombie}/pilot-batch.json`,
+2 tracked files in gk-data) and `run_t71_claude_propose.py` (writes `data/seed/effects/affixes/all.json`,
+1 tracked file) are seedsmith DRIVERS that emit committed seed files, and neither was reachable while
+the scan stopped at the package directory. A guard that covers the library and misses the two
+executables that actually write the corpus is not a weaker guard; it is the wrong shape.
+
+`tools/seedsmith/tests/**` holds roughly 350 further `write_text` calls that are NOT swept — stated
+here rather than hidden, because it is a separate decision, not an oversight. They write into pytest
+`tmp_path` fixtures, which carry no committed-bytes contract, so CRLF in them is not this defect. Two
+of them are structurally blind to the defect anyway, which is worth recording: `test_type_weights.py`
+and `test_characteristic_pool.py` build "frozen snapshots" via
+`frozen.write_text(src.read_text(...))` and then read them back with `read_text()`. `read_text()`
+applies universal newlines, so both sides of the comparison are normalised and the assertion passes
+whether or not the bytes on disk were LF. Those comparisons cannot detect this defect, and changing
+them is a decision for whoever owns the tests.
 
 FAIL CLOSED BY NAME
 -------------------
@@ -117,6 +132,14 @@ EXEMPTIONS: dict[tuple[str, int], str] = {
         "SCRATCH: a tempfile.mkstemp file holding an inline --theme string, handed to a child "
         "process as --brief and never renamed onto any path. The only exemption here that is "
         "transient by construction rather than by location.",
+    ("tools/seedsmith/_j9_batch_run.py", 80):
+        "SCRATCH, evidenced by the OUTPUT not the docstring: _write_results targets RESULTS_PATH "
+        "(line 60) = <tools/seedsmith>/_j9_batch_run_results.json, a resume checkpoint beside the "
+        "driver. `git ls-files --error-unmatch` reports that output UNTRACKED, while the seed tree "
+        "the sibling drivers in this same directory write (data/seed/creatures/species-effects) "
+        "holds tracked files. Nothing consumes its bytes as a contract; it is a progress file that "
+        "the next process reads and overwrites. CR in it cannot make a committed corpus differ "
+        "from itself.",
 }
 
 # ---------------------------------------------------------------------------
@@ -308,12 +331,37 @@ def scan_file(path: Path, rel: str) -> tuple[list[Finding], list[str]]:
     return findings, []
 
 
+# (directory, recursive). The package is walked whole; the driver directory is walked ONE level, so
+# this reaches run_t53/run_t71 without also re-walking tests/ or re-walking the package above.
+# Set by main() to the resolved repo root, so a helper can render repo-relative keys without every
+# caller threading `repo` through. One element; only ever assigned once per run.
+_REPO: list[Path] = [Path(".").resolve()]
+
+SCAN_ROOTS: tuple[tuple[str, bool], ...] = (
+    ("tools/seedsmith/seedsmith", True),
+    ("tools/seedsmith", False),
+)
+
+
+def _python_files(repo: Path) -> list[Path]:
+    """Every .py under the scanned roots, de-duplicated, __pycache__ excluded, sorted."""
+    seen: dict[str, Path] = {}
+    for rel_root, recursive in SCAN_ROOTS:
+        base = repo / rel_root
+        if not base.is_dir():
+            continue
+        candidates = base.rglob("*.py") if recursive else base.glob("*.py")
+        for path in candidates:
+            if "__pycache__" in path.parts:
+                continue
+            seen[path.relative_to(repo).as_posix()] = path
+    return [seen[k] for k in sorted(seen)]
+
+
 def scan_tree(pkg: Path, repo: Path) -> tuple[list[Finding], list[str]]:
     findings: list[Finding] = []
     parse_errors: list[str] = []
-    for path in sorted(pkg.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
+    for path in _python_files(repo):
         rel = path.relative_to(repo).as_posix()
         f, errs = scan_file(path, rel)
         findings.extend(f)
@@ -324,11 +372,11 @@ def scan_tree(pkg: Path, repo: Path) -> tuple[list[Finding], list[str]]:
 def reconcile(pkg: Path, repo: Path, findings: list[Finding]) -> dict[str, object]:
     """Text-match vs AST: every line the raw search finds that the parser does not confirm."""
     confirmed = {(f.rel, f.line) for f in findings if f.kind == "WRITE-TEXT-NEWLINE"}
-    confirmed_calls = _ast_write_text_lines(pkg, repo)
+    files = _python_files(repo)
+    _REPO[0] = repo
+    confirmed_calls = _ast_write_text_lines(files)
     text_hits: list[str] = []
-    for path in sorted(pkg.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
+    for path in files:
         rel = path.relative_to(repo).as_posix()
         for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if "write_text" in line:
@@ -345,12 +393,10 @@ def _key(spec: str) -> tuple[str, int]:
     return rel, int(n)
 
 
-def _ast_write_text_lines(pkg: Path, repo: Path) -> set[tuple[str, int]]:
+def _ast_write_text_lines(files: list[Path]) -> set[tuple[str, int]]:
     out: set[tuple[str, int]] = set()
-    for path in sorted(pkg.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        rel = path.relative_to(repo).as_posix()
+    for path in files:
+        rel = path.relative_to(_REPO[0]).as_posix()
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=rel)
         except SyntaxError:
@@ -405,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
 
     payload: dict[str, object] = {
         "guard": GUARD_ID, "status": "clean" if not found and not stale else "blocked",
-        "scanned_files": sum(1 for p in pkg.rglob("*.py") if "__pycache__" not in p.parts),
+        "scanned_files": len(_python_files(repo)),
         "hazards_found": len(findings),
         "findings": len(found),
         "exemptions_used": len(exempt),
