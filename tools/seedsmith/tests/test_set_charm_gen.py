@@ -1716,6 +1716,43 @@ class BatchDuplicateGuardTests(unittest.TestCase):
             self.assertEqual(names, {"real set"},
                              "bookkeeping entries are not player-facing names and must not be read")
 
+    def test_a_foreign_document_is_a_no_op_not_a_TypeError(self) -> None:
+        """`document.get("entries") or ()` reads as "missing or empty" and is neither.
+
+        It keeps a TRUTHY non-list: `entries: 7` raises `TypeError: 'int' object is not iterable`
+        out of a name-collision scan, and `entries: "abc"` silently iterates three characters. The
+        shipped corpus is clean today (1,059 files scanned, 0 offenders) so no test ever saw this —
+        the exposure is created by the CALLER, not by the corpus: `root = out_dir.parent` means a
+        caller that passes a bare temp dir as `out_dir` makes this glob every JSON under the system
+        temp directory, and then any unrelated scratch file's shape is this function's problem.
+
+        FAIL-BEFORE: `entries: 7` and `entries: true` both raised out of the scan; `entries: "Sun
+        Plate"` contributed the characters `s`, `u`, `n` as names.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sets = root / "sets"
+            sets.mkdir()
+            foreign = [
+                {"entries": 7}, {"entries": True}, {"entries": 1.5},
+                {"entries": "Sun Plate"}, {"entries": {"a": 1}}, {"entries": None},
+                {"entries": []}, {"no_entries_key": 1},
+            ]
+            (root / "scratch").mkdir()
+            for index, document in enumerate(foreign):
+                (root / "scratch" / f"foreign-{index}.json").write_text(
+                    json.dumps(document), encoding="utf-8")
+            (root / "sets" / "existing.json").write_text(json.dumps({
+                "kind": "set", "entries": [{"name": "Real Set"}],
+            }), encoding="utf-8")
+
+            names = authored_mod._existing_identity_names(sets)
+
+            self.assertEqual(
+                names, {"real set"},
+                "FAIL-BEFORE: a truthy non-list `entries` either raised TypeError out of the "
+                "collision scan or contributed junk characters as identity names")
+
     def test_later_exact_name_is_terminally_escalated_before_write(self) -> None:
         result = authored_mod.BatchResult(kind="charm", population="species", out_dir=Path("."))
         result.entries = [

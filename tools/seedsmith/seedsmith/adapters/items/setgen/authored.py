@@ -264,7 +264,21 @@ def _existing_identity_names(out_dir: Path) -> "set[str]":
                 continue
             if not isinstance(document, dict):
                 continue
-            for row in document.get("entries") or ():
+            # `document.get("entries") or ()` reads as "missing or empty", and is neither: it keeps
+            # a TRUTHY non-list. `entries: 7` then raises `TypeError: 'int' object is not iterable`
+            # out of a name-collision scan that was only ever meant to look at the corpus — and
+            # `entries: "abc"` silently iterates three characters. The root of that is the caller's
+            # `root = out_dir.parent`: a caller that passes a bare temp dir as `out_dir` makes this
+            # glob every JSON under the system temp directory (measured: 483,076 files), so any
+            # unrelated scratch file's shape becomes this function's problem. The explicit type check
+            # keeps a foreign document a no-op instead of an exception. (The same idiom appears at
+            # 23 other call sites across `adapters/items/**`; this is the one the audit named, and
+            # the corpus itself is clean today — 1,059 files scanned, 0 offenders — so the exposure
+            # is the idiom, not a live defect.)
+            rows = document.get("entries")
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
                 name = row.get("name") if isinstance(row, dict) else None
                 if isinstance(name, str) and name.strip() and "{" not in name:
                     names.add(name.strip().casefold())

@@ -671,7 +671,7 @@ class SetMemberBindingTests(unittest.TestCase):
                     plan=plan,
                     answers=_answer_file("set", "build",
                                          {plan.subjects[0].subject_id: _clean_set_answer()}),
-                    tuning=TUNING, vocabulary=VOCAB, out_dir=Path(tmp), kind="set",
+                    tuning=TUNING, vocabulary=VOCAB, out_dir=Path(tmp) / "sets", kind="set",
                     population="build", authored_utc="1970-01-01T00:00:00Z", model="fixture",
                     call=raising)
 
