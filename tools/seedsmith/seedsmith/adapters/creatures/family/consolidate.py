@@ -7,6 +7,32 @@ the input to this module is a fixed, already-recorded set of candidates, which i
 
 Merging reads `label` (English) only; `nativeLabel` is carried into the family record for display
 and `lore-enrich`, and never participates in grouping (§2.0, resolving audit S7).
+
+**The head-noun merge carries ONE narrow refusal (2026-10-04).** §2.1 rule 2 reduces a label to its
+last non-generic token, and it was right to exist — `wall-nut`, `tall-nut`, `defensive-nut` and
+`nut-type` must all reduce to `nut`, or the same family splits four ways. What it did not know is
+whether the token it lands on is worth keeping when the label had better information to give. So:
+
+> the merge is refused when the label's own LEADING token is a term the corpus already groups by and
+> the head it would emit is not, because the merge then provably throws away information the corpus
+> asserted. `undead fauna` reduces to `fauna`, discarding `undead` — and `undead` is a family 30+
+> species land on while `fauna` is a category noun nothing else uses.
+
+That is the whole rule, and its narrowness is measured rather than cautious: the wider version —
+"refuse every head the corpus has not itself corroborated" — was built, broke four pre-existing
+`test_family_consolidate.py` cases, and did not even fix what it was built for. `merge_corroborated`
+carries that account and `tests/test_family_source_repairs.py` pins both directions.
+
+The **corroborated** set is two committed sources and no hand-written vocabulary: a token some
+candidate in this same run authored as its WHOLE label, plus the curated `families.v1.json` registry
+ids the caller passes in. `attested_grouping_terms` is the first; the second is why `wall-nut` still
+reduces to `nut` when `nut` is a curated family that no species ever authored bare.
+
+`head_noun` and `canonical_key` keep their signatures and their original behaviour for a caller that
+has no corpus in hand; the gate lives in `merge_corroborated`, which is the only function that can
+see the whole candidate set. Determinism is untouched — §2.1's claim is "same inputs ->
+byte-identical vocabulary", and the corroboration set is itself a pure function of those same
+inputs.
 """
 from __future__ import annotations
 
@@ -22,6 +48,8 @@ __all__ = [
     "normalize",
     "head_noun",
     "canonical_key",
+    "attested_grouping_terms",
+    "merge_corroborated",
     "consolidate",
     "load_synonyms",
 ]
@@ -84,6 +112,66 @@ def canonical_key(label: str, synonyms: Mapping[str, str]) -> str:
     return head_noun(norm)
 
 
+def attested_grouping_terms(candidates: Sequence[FamilyCandidateInput]) -> "frozenset[str]":
+    """Every token the corpus itself uses as a WHOLE family label — one of the two committed sources
+    `merge_corroborated`'s refusal consults.
+
+    A single-token label is a species stating "this word is my family", which is the only in-corpus
+    evidence that the word names a group rather than describing one. Multi-token labels contribute
+    nothing: `wall-nut` says `nut` is worth keeping `wall` beside, not that `nut` stands alone.
+    Measured over the live corpus, 2026-10-04: 170 of them.
+    """
+    out: "set[str]" = set()
+    for c in candidates:
+        norm = normalize(c.label)
+        if norm and "-" not in norm:
+            out.add(norm)
+    return frozenset(out)
+
+
+def merge_corroborated(
+    label: str, synonyms: Mapping[str, str], corroborated: "frozenset[str]",
+) -> str:
+    """`canonical_key`, with ONE narrow refusal added on top of §2.1 rule 2.
+
+    **The refusal, stated as the loss it prevents:** the head-noun merge is NOT applied when the
+    label's own LEADING token is a term the corpus already groups by and the head it would emit is
+    not — because in that case the merge provably throws away information the corpus asserted.
+    `undead fauna` reduces to `fauna`, discarding `undead`, and `undead` is a family 30+ species
+    land on while `fauna` is a category noun nothing else uses. The label keeps both words.
+
+    **What this rule deliberately does NOT do, and why the scope is this narrow.** The tempting
+    version — refuse every head the corpus has not itself corroborated — was built and measured on
+    2026-10-04, and it destroys §2.1 rule 2. On a candidate set of three (`wall-nut`,
+    `defensive-nut`, `nut-type`) nothing is corroborated, so all three stop merging and a family
+    that has been one family since 2026-08-31 splits three ways. Worse, it does not even fix the
+    cases it was built for: `botanical` is reached by stripping from four labels, so it WOULD be
+    refused, and so would every legitimately small corpus. Four pre-existing tests
+    (`test_family_consolidate.py`) caught exactly this, which is what a guard is for.
+
+    So the rule refuses only a PROVABLE loss and leaves every undecidable case exactly as §2.1 rule 2
+    left it. Deciding `fragile-body` -> `body` or `two-headed-shooter` -> `headed` needs to know
+    that `body` and `headed` are not family terms, and nothing in this tree knows what a word means.
+    Adding a curated non-noun lexicon would be inventing a taxonomy, which is the one thing the
+    owner ruling for this work forbids. Those labels are the unresolved remainder, and the sibling
+    `fallback.py` is what catches the species they strand.
+
+    A synonym match still wins outright — rule 3 is an explicit human override and must not be
+    second-guessed. Never raises and never returns empty: this module places the candidate
+    somewhere, and dropping it is `fallback.py`'s decision, not this one's.
+    """
+    norm = normalize(label)
+    if norm in synonyms:
+        return normalize(synonyms[norm])
+    head = head_noun(norm)
+    if head == norm:
+        return head                      # a single token is its own head; nothing was merged away
+    leading = next((t for t in norm.split("-") if t), head)
+    if leading in corroborated and head not in corroborated:
+        return norm                      # the merge would discard a family term the corpus asserts
+    return head
+
+
 @dataclass(frozen=True)
 class FamilyCandidateInput:
     species_id: str
@@ -106,8 +194,16 @@ def consolidate(
     *,
     synonyms: "Mapping[str, str] | None" = None,
     existing_registry: "Mapping[str, dict] | None" = None,
+    established_terms: "Mapping[str, str] | None" = None,
 ) -> ConsolidatedFamilies:
     """Mechanical merge: normalize -> head-noun/synonym -> canonical key -> family id.
+
+    `established_terms` is an OPTIONAL extra corroboration set of family terms the corpus cannot
+    state about itself — today the caller passes the curated `families.v1.json` registry ids. It is
+    a parameter rather than a path this module resolves because a leaf that resolves paths is a
+    leaf that can join an import cycle (`seedsmith.ladders` says so about itself), and because the
+    registry is owned by the seed root the caller already owns. `None` means "corroboration from
+    this run's own labels only", which is the weaker but still-correct behaviour.
 
     `existing_registry` is `families.v1.json`'s own content from a PRIOR run, if any — append-only
     (§2.3): every id already in it keeps its exact identity and position; only a canonical key with
@@ -116,6 +212,12 @@ def consolidate(
     """
     syn = dict(synonyms) if synonyms is not None else load_synonyms()
     ordered = sorted(candidates, key=lambda c: c.species_id)
+
+    # The corroboration set is a pure function of the SAME candidate set this run consumes, so §2.1's
+    # "same inputs -> byte-identical vocabulary" is preserved: two runs over the same corpus reach
+    # the same set and therefore the same keys, in the same order.
+    corroborated = attested_grouping_terms(ordered) | frozenset(
+        normalize(str(term)) for term in (established_terms or ()))
 
     key_to_id: "dict[str, str]" = {}
     order: "list[str]" = []
@@ -130,7 +232,7 @@ def consolidate(
     assignments: "dict[str, set[str]]" = {}
 
     for c in ordered:
-        key = canonical_key(c.label, syn)
+        key = merge_corroborated(c.label, syn, corroborated)
         family_id = key_to_id.get(key)
         if family_id is None:
             # A canonical key with no matching id in the existing registry is a NEW family — its

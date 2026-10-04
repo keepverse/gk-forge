@@ -379,12 +379,28 @@ KIT_SHAPE = PipelineSpec(
 
 def _brief_identity(lore: SpeciesLore, context: dict) -> str:
     return (
-        "Judge this creature's identity: what KIND of thing is it (family — open vocabulary, "
-        "invent a reasonable tag if none fits), what specifically distinguishes it (traits — open "
-        "vocabulary, distinct from family), which of the seven known variant forms it could "
-        "plausibly have (variants — name WHICH exist, not how many will be offered), and how "
-        "special/rare it is (rarity, the ten-rung botanical ladder — NOT how dangerous it is; "
-        "that is a separate axis).\n\n"
+        "Judge this creature's identity: what KIND of group does it belong to (family), what "
+        "specifically distinguishes it (traits — open vocabulary, distinct from family), which of "
+        "the seven known variant forms it could plausibly have (variants — name WHICH exist, not "
+        "how many will be offered), and how special/rare it is (rarity, the ten-rung botanical "
+        "ladder — NOT how dangerous it is; that is a separate axis).\n\n"
+           # A family is a GROUP, not a description. Measured 2026-10-04: the previous wording —
+           # "family — open vocabulary, invent a reasonable tag if none fits" — licensed the model's
+           # own echo of the species name, and 60 of the 79 artefact family labels this change
+           # exists to stop were exactly that echo: a bucket of one, next to a bucket of 68 for the
+           # same idea. The label becomes an ACTION NAMESPACE KEY
+           # (`characteristic_pool/vocab.py`'s `load_family_map_keys` unions these values into the
+           # set a `family`-scoped row's `scopeKey` may name), so a key that groups nothing is a
+           # namespace with one member. Naming the test is the fix; it is not expressible in the
+           # JSON Schema, because whether a value is shared is a property of the corpus, not of one
+           # value — see the schema's own note.
+           "A family names a GROUP that more than one creature could belong to. Before answering, "
+           "ask: could a different species share this exact tag? If your tag is a restatement of "
+           "this one creature — its proper name, its own epithet, a single word lifted from its own "
+           "name — it is not a family, and the real answer is the broader group it belongs to "
+           "(`professor-zombie` is not a family; `zombie` is, and so is `basic-undead` if that is "
+           "what it actually is). Prefer the name of the GROUP even when a narrower tag feels more "
+           "descriptive, and say nothing here that would only ever apply to this one creature.\n\n"
            # The family label is not free text. `normalize_family_key` in
            # adapters/actions/characteristic_pool/catalog.py turns it into an action namespace key by
            # collapsing every run of characters outside [a-z0-9] to a hyphen, and the consumer raises
@@ -397,7 +413,18 @@ def _brief_identity(lore: SpeciesLore, context: dict) -> str:
            "digit: the label becomes an action namespace key by lowercasing and collapsing every run "
            "of non-alphanumeric characters to a hyphen, so a label with no ASCII letters normalizes "
            "to nothing and the species cannot be loaded at all. Short concrete tags work best - "
-           "\"explosive-fungus\", \"armoured-vine\".\n\n" + _lore_block(lore)
+           "\"explosive-fungus\", \"armoured-vine\".\n\n"
+           # Never answer with a word that says the capture found nothing. The lore block below
+           # prints `Name: (unnamed)` for a slot that captured no name (this module's own
+           # `SpeciesLore` default), and the model read that literally: 8 labels across 6 entries
+           # answered `placeholder entry`, `unnamed plant`, `unknown-plant`, `unspecified-plant`,
+           # `unidentified-plant` and `unnamed zombie`. `creatures/anchor/schema.py`'s
+           # `seed_consumer_violations` now refuses every one of them, and the honest answer to a
+           # nameless capture is the group its GAME TYPE places it in, not a word about the name.
+           "Never use a word meaning \"no name was captured\" — placeholder, unnamed, unknown, "
+           "unspecified, unidentified. If the lore block shows `(unnamed)`, that is the absence of a "
+           "name, not the creature's kind: answer with the group the creature belongs to.\n\n"
+           + _lore_block(lore)
         + f"\n\nrarity options: {', '.join(context.get('order', RARITY))}. "
           f"variants options: {', '.join(VARIANTS)}."
     )
@@ -409,7 +436,10 @@ IDENTITY = PipelineSpec(
     judgement="what kind of thing is it, and how special?",
     system_prompt=(
         "You judge identity from a creature's captured lore. family and traits are OPEN "
-        "vocabularies — invent a reasonable tag rather than forcing a poor fit. variants names "
+        "vocabularies — invent a reasonable tag rather than forcing a poor fit, BUT a family tag "
+        "must name a GROUP more than one species could share and must never be that one species' "
+        "own name or epithet back as a tag: it becomes an action namespace key, so a tag only this "
+        "creature lands on is a namespace of one. variants names "
         "WHICH of the seven known forms are plausible for this species, never a count. rarity is "
         "how special/hard-to-obtain this species is, distinct from and never conflated with how "
         "dangerous it is.\n\n"
@@ -457,7 +487,36 @@ IDENTITY = PipelineSpec(
     schema=_blocked_variant({
         "type": "object",
         "properties": {
-            "family": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            # `uniqueItems` added 2026-10-04, and it is the ONE part of the "a family is a grouping"
+            # property the JSON Schema can actually say: listing the same family twice is malformed
+            # whatever else is true. A bare repetition is not a grouping of anything.
+            #
+            # ⛔ WHAT THE SCHEMA CANNOT EXPRESS, measured — this is a finding, not a gap being papered
+            # over. `pipeline/run.py`'s `validate_against_schema` implements `required`, `type` and
+            # `enum` and NOTHING ELSE; it never reads `minItems`, `uniqueItems`, `pattern` or
+            # `maxItems`. Verified by feeding the validator the three payloads below and reading the
+            # result (2026-10-04):
+            #
+            #   family: []                      -> accepted
+            #   family: ["a", "a"]             -> accepted
+            #   family: ["PLACEHOLDER ENTRY"]   -> accepted
+            #
+            # So the pre-existing `minItems: 1` on this very field is DECORATIVE: an empty family
+            # array passes schema validation today and is caught only later, by
+            # `characteristic_pool/catalog.py`'s "has no family" raise. `uniqueItems: True` is
+            # declared because it is correct and cheap, NOT because the local validator enforces it;
+            # a stricter endpoint (LM Studio's `json_schema` response format, or any full validator)
+            # honours it.
+            #
+            # The property that would actually stop a `family` of one is "more than one species
+            # carries this value", and JSON Schema CANNOT express it: it validates ONE document in
+            # isolation, and sharing is a relation between documents. Every mechanism that can
+            # express it lives outside the schema — `family/consolidate.py`'s corroboration-gated
+            # merge, `family/fallback.py`'s deterministic repair, and the prompt's own "could a
+            # different species share this exact tag?" test. Adding a `maxItems`/`uniqueItems` here
+            # and calling the singleton problem solved would be the mistake.
+            "family": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                       "uniqueItems": True},
             "traits": {"type": "array", "items": {"type": "string"}, "minItems": 1},
             "variants": {
                 "type": "array", "items": {"type": "string", "enum": list(VARIANTS)},

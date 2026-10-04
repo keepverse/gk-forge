@@ -10,7 +10,7 @@ from typing import Any
 
 from .descriptions import DESCRIPTIONS
 from seedsmith.ladders import RARITY_LADDER as _RARITY_LADDER
-from seedsmith.ladders import normalize_family_key
+from seedsmith.ladders import carries_no_identity, carries_placeholder, normalize_family_key
 from seedsmith.ladders import THREAT_BAND as _THREAT_BAND
 
 # Real, shipped vocabularies — never invented here. Sources:
@@ -204,6 +204,16 @@ def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
         elementSecondary in six              rarity in the ladder
         traits is a list                     a family label normalizes
         family is a list                    family has a live label
+        family label asserts an identity     family label is loadable
+
+    The last row is the only one NOT transcribed from a `raise` in the consumer, and it is
+    deliberate: it is a SOURCE-side refusal, which is the whole point of it. The consumer
+    (`characteristic_pool/catalog.py`) cannot see the defect — `normalize_family_key` maps
+    `placeholder entry` to the perfectly loadable key `entry`, and maps `unnamed plant` to `plant`,
+    which is one of the two largest buckets in the corpus. Both are artefacts and both load
+    without complaint, so a predicate transcribed from the consumer's raise set can never refuse
+    them. Measured 2026-10-04 over the 904 live records: 2 labels carry a capture-placeholder token
+    and 6 more assert that no identity was captured, for 8 label occurrences the consumer accepts.
 
     The list is this long because the corpus was repaired four times against one guard at a
     time - 44 entries with an unresolvable elementPrimary, 111 with a rarity outside the
@@ -265,6 +275,17 @@ def seed_consumer_violations(fields: "dict[str, object]") -> "tuple[str, ...]":
                     dead.append(label)
             if dead:
                 out.append(f"family label(s) {dead} normalize to an empty key")
+            # The SOURCE-side refusal the consumer structurally cannot make (see the docstring's
+            # table). Both predicates come from the shared leaf so this gate and `theme_enrich`'s
+            # flavour check read one definition, and reported per label so a caller repairing one
+            # bad label is told exactly which one it was.
+            assert_no_identity = sorted(
+                label for label in labels
+                if carries_placeholder(label) or carries_no_identity(label))
+            if assert_no_identity:
+                out.append(
+                    f"family label(s) {assert_no_identity} assert no captured identity "
+                    f"(placeholder / unnamed / unknown / unspecified / unidentified)")
     return tuple(out)
 
 

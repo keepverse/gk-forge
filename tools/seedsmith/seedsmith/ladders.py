@@ -84,6 +84,72 @@ RARITY_LADDER: "tuple[str, ...]" = rarity_ladder()
 THREAT_BAND: "tuple[str, ...]" = threat_band()
 
 
+# =================================================================================================
+# The placeholder-token vocabulary — moved HERE from `adapters/creatures/theme_enrich.py` on
+# 2026-10-04 so a SECOND field can refuse the same thing without re-declaring the regex.
+#
+# WHY THE MOVE, MEASURED. `theme_enrich` declared `_PLACEHOLDER` privately for its own flavor-text
+# check. The family-label gate needs it too (`creatures/anchor/schema.py`'s `seed_consumer_violations`),
+# because a family label carrying a placeholder token becomes an action namespace key via
+# `normalize_family_key` — so `placeholder entry` silently ships as the family id `entry`, a bucket of
+# exactly one species. Two private copies of one regex is exactly the drift `normalize_family_key`'s
+# own docstring refuses ("a second implementation free to drift from the consumer it exists to
+# satisfy"), and this leaf is the only module in the tree whose docstring can promise it can never
+# join an import cycle ("No seedsmith-internal imports here").
+#
+# There is NO import cycle to route around: `theme_enrich` and `anchor/schema.py` import each other's
+# neighbourhood fine in both orders (verified 2026-10-04, both import orders succeed). The move is
+# about dependency direction, not a hard failure — `theme_enrich` transitively pulls in
+# `pipeline.llm_caller`, `pipeline.run` and `pipeline.run_ledger`, so having a schema leaf import it
+# would make the schema depend on the LLM-calling pipeline. The leaf is the correct home for a
+# predicate four modules read.
+#
+# The pattern is BYTE-IDENTICAL to the one it replaces. It is not widened here, and it must not be:
+# `theme_enrich` checks free flavor prose, where a legitimate sentence may contain "unknown".
+# Widening it for the family field would change an unrelated field's behaviour — which is why the
+# family gate composes two separate predicates (see `carries_no_identity`) rather than editing this
+# one. Two named predicates, one shared home: not a third regex.
+PLACEHOLDER_TOKEN = re.compile(r"(?:lorem|todo|tbd|placeholder|<[^>]+>)", re.IGNORECASE)
+
+#: The sibling the family-label gate needs, and the reason it cannot just reuse `PLACEHOLDER_TOKEN`.
+#:
+#: Measured 2026-10-04 over the 904 live species records: exactly TWO authored family labels carry a
+#: `PLACEHOLDER_TOKEN` match (`placeholder entry`, `placeholder plant`), but SIX more assert no
+#: captured identity in the same way and do NOT match it — `unnamed plant`, `unnamed-plant`,
+#: `unnamed zombie`, `unknown-plant`, `unspecified-plant`, `unidentified-plant`. All eight reach the
+#: corpus because `prompts.py`'s own brief prints `Name: (unnamed)` for an unnamed capture slot
+#: (`prompts.py`'s lore block), so the model reads the placeholder and answers with it.
+#:
+#: They are a SEPARATE predicate and not a wider regex because the harm is different in kind: a
+#: `PLACEHOLDER_TOKEN` match is debris (`lorem`, `tbd`), while these tokens are a label that parses
+#: perfectly and normalises to a real, non-empty key (`unnamed plant` -> `plant`) — so neither
+#: `normalize_family_key` nor a normal placeholder check can see them, and only a word-level
+#: identity check catches them at the source.
+IDENTITY_DENYING_TOKEN = re.compile(
+    r"(?:^|[^a-z0-9])(?:unnamed|unknown|unspecified|unidentified)(?:$|[^a-z0-9])",
+    re.IGNORECASE)
+
+
+def carries_placeholder(label: str) -> bool:
+    """True when `label` carries a capture-placeholder token (`lorem`, `tbd`, `<angle brackets>`).
+
+    The one definition `theme_enrich` and the family-label gate both read. Never re-inline this
+    pattern; import it from here.
+    """
+    return PLACEHOLDER_TOKEN.search(str(label)) is not None
+
+
+def carries_no_identity(label: str) -> bool:
+    """True when `label` asserts that the capture found NO identity — `unnamed`, `unknown`,
+    `unspecified`, `unidentified` — as a WORD anywhere in the label.
+
+    Matched on token boundaries rather than as a bare substring, because a bare substring refuses
+    real content: `unknownplant` is one token and not two, and the boundary form is what lets it
+    through. A gate that fires on legal input is a gate nobody can route around.
+    """
+    return IDENTITY_DENYING_TOKEN.search(str(label)) is not None
+
+
 def normalize_family_key(label: str) -> str:
     """Turn a descriptive family label into a stable action namespace key.
 

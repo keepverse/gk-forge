@@ -9,6 +9,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping, Sequence
 
 from ...creatures.family.consolidate import FamilyCandidateInput, consolidate
 from .curation import curated_traits
@@ -47,6 +48,18 @@ def _owned(relative: str) -> "Path":
 CATALOG_PATH = _owned("data/seed/creatures/species")
 LEGACY_CATALOG_PATH = _owned("src/FusionRpg.Core/Creatures/CreatureSpeciesCatalog.Generated.cs")
 
+#: The curated family registry — this repo's OWN human-owned family vocabulary, read fresh and
+#: never transcribed. It is the second of the two committed corroboration sources the head-noun
+#: merge consults (`family/consolidate.py`'s module docstring names both). It is not redundant with
+#: the corpus's own labels: `pea` groups 9 real species and is a curated family, yet no species ever
+#: authored the bare label `pea` — every one of them wrote `pea-shooter` or `double-peashooter`, so
+#: without the registry the corroboration-gated merge would stop stripping `pea-shooter` and split a
+#: real family in two.
+#:
+#: Read here, in the module that already resolves the seed root, and passed DOWN as a parameter —
+#: `consolidate` is a leaf and resolving a path from it is how a leaf joins an import cycle.
+FAMILY_REGISTRY_PATH = _owned("data/seed/creatures/_registry/families.v1.json")
+
 # `RARITY_LADDER` / `TRAIT_POOL` now live in `ladders.py` (a leaf both this module and `curation.py`
 # import from — see that module's docstring for why the shared copy fixes the drift risk). They are
 # re-exported above so every existing importer of `catalog.RARITY_LADDER` keeps working unchanged.
@@ -65,6 +78,12 @@ _ROW_RE = re.compile(
     r'TraitPool\s*=\s*new\[\]\s*\{\s*(?P<traits>[^}]*)\s*\}',
 )
 _TRAIT_STR_RE = re.compile(r'"([a-z-]+)"')
+
+#: Where one word of a committed CamelCase `speciesId` ends and the next begins: a run of capitals
+#: (`PDF` -> one token), a capitalised word (`Mine`), or a lowercase run. This is the game's own
+#: record of its own taxonomy, not a word list: `PeaMine` splits to `pea`/`mine` and `NutBlover` to
+#: `nut`/`blover` with nothing hardcoded. `re` finds the humps; no morphology is inferred.
+_CAMEL_SPLIT = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
 
 # CreatureRarity enum member name -> ladder id (CreatureRarityIds.ToId, CreatureRarity.cs:52-65). The C#
 # source spells the member in PascalCase; the ladder id is the same word lower-cased in every case
@@ -151,7 +170,15 @@ def load_live_records(root: Path = CATALOG_PATH) -> "list[dict[str, object]]":
             if species_id in seen:
                 raise ValueError(f"{path}: duplicate speciesId {species_id!r}")
             seen.add(species_id)
-            records.append({**entry, "speciesId": species_id, "_sourcePath": str(path)})
+            # `_rawSpeciesId` is the id AS COMMITTED, casing intact. `speciesId` is lower-cased for
+            # the canonical key, which is correct for every consumer and fatal for the one thing
+            # that reads the game's own name taxonomy: `PeaMine` is two words and `peamine` is one.
+            # Preserved under an underscore-prefixed name so no schema consumer mistakes it for a
+            # field (the sibling key `_sourcePath` sets the precedent).
+            records.append({
+                **entry, "speciesId": species_id, "_rawSpeciesId": raw_id.strip(),
+                "_sourcePath": str(path),
+            })
 
     if not records:
         raise ValueError(f"{root}: live species seed directory contains no species records")
@@ -205,10 +232,93 @@ def _live_row(record: dict[str, object]) -> SpeciesRow:
     )
 
 
+def load_curated_family_terms(path: Path = FAMILY_REGISTRY_PATH) -> "frozenset[str]":
+    """The curated `families.v1.json` family ids, or an empty set when the registry is absent.
+
+    Empty rather than raising is deliberate and asymmetric with the guards above: this set only ever
+    WIDENS the set of heads the merge may strip, so a missing registry degrades the grouping to
+    "corroborate from the corpus's own labels alone" instead of failing a whole corpus load. That is
+    the same weaker-but-correct posture `load_synonyms`' absence would take, and it is why the
+    registry is corroboration and not authority.
+    """
+    if not path.is_file():
+        return frozenset()
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    families = doc.get("families")
+    return frozenset(families) if isinstance(families, dict) else frozenset()
+
+
+#: Species whose family was filled by `resolve_unresolved_family` during the LAST
+#: `derive_live_family_assignments` call in this process, rewritten on every call. Written HERE and
+#: read by anyone who needs to know which families carry no model judgment; it exists because that
+#: function's return type is the assignments map every existing caller already expects, and the
+#: anchor's `_provenance.confidence` is written by the runner, not from here.
+#:
+#: This is the SET, not the stamp. The honest-provenance tag those species owe is
+#: `"deterministic-fallback"` — the same one `creatures/anchor/derive.py`'s `resolve_unresolved_*`
+#: family stamps, and never a value disguised as a model judgment — but this module does not write
+#: it, and claiming otherwise here would be a comment asserting a fact no code line establishes.
+FALLBACK_SURFACE: "list[str]" = []
+
+
+def _key_owners(
+    assignments: "Mapping[str, Sequence[str]]",
+) -> "dict[str, set[str]]":
+    """Which species land on each consolidated family key — the input
+    `family/fallback.py`'s artefact test is stated in terms of.
+
+    The audit's structural test ("does this key ever bucket more than one thing?") is a property of
+    this mapping, and asking it per species rather than as a global set is what stops a species from
+    being the only reason its own family looks corroborated.
+    """
+    owners: "dict[str, set[str]]" = {}
+    for species_id, families in assignments.items():
+        for family in families:
+            owners.setdefault(family, set()).add(species_id)
+    return owners
+
+
+def _committed_name_tokens(records: "Sequence[dict]") -> "dict[str, tuple[str, ...]]":
+    """Each species' OWN committed CamelCase `speciesId`, split into its own words.
+
+    `load_live_records` lower-cases `speciesId` on the way out (it is the canonical key), which
+    destroys the one committed signal this derivation needs: `PeaMine` is two words, `peamine` is
+    one. So this reads the id off the record as loaded — `load_live_records` keeps the whole original
+    entry under the spread — and splits on the ORIGINAL casing held in `_rawSpeciesId`.
+
+    No word list, no morphology, no English: `re` finds the camel humps, which are the game's own
+    record of where one creature word ends and the next begins.
+    """
+    out: "dict[str, tuple[str, ...]]" = {}
+    for record in records:
+        raw = record.get("_rawSpeciesId") or record["speciesId"]
+        tokens = tuple(dict.fromkeys(t.lower() for t in _CAMEL_SPLIT.findall(str(raw)) if t))
+        out[str(record["speciesId"])] = tokens
+    return out
+
+
 def derive_live_family_assignments(root: Path = CATALOG_PATH) -> "dict[str, list[str]]":
-    """Derive species-to-family memberships from the live species records."""
+    """Derive species-to-family memberships from the live species records.
+
+    Two refusals, in this order, and the distinction between them is the design:
+
+      * A species carrying NO live family label at all still raises `has no family`. That raise is
+        the contract which made 338 family-less species visible in the first place; relaxing it is
+        not this change's job and a silent default would hide the next one.
+      * A species whose labels are all REFUSED AS ARTEFACTS is handed to `resolve_unresolved_family`,
+        which derives a real grouping from committed data. If that derivation cannot be made, the
+        species keeps whatever label it had — never emptied, never invented.
+
+    The fallback reads the CONSOLIDATED result, because "is this family corroborated" is a property
+    of the consolidated vocabulary (does any other species share the key?), which only `consolidate`
+    can answer.
+    """
+    from ...creatures.family.fallback import resolve_unresolved_family
+
+    curated = load_curated_family_terms()
+    records = load_live_records(root)
     candidates: "list[FamilyCandidateInput]" = []
-    for record in load_live_records(root):
+    for record in records:
         raw_families = record.get("family", [])
         if isinstance(raw_families, str):
             raw_families = [raw_families]
@@ -222,7 +332,25 @@ def derive_live_family_assignments(root: Path = CATALOG_PATH) -> "dict[str, list
                 species_id=str(record["speciesId"]), label=label,
                 native_label=label, basis="text",
             ))
-    return consolidate(candidates).assignments
+
+    assignments = consolidate(candidates, established_terms=curated).assignments
+    name_tokens = _committed_name_tokens(records)
+    owners = _key_owners(assignments)
+
+    del FALLBACK_SURFACE[:]
+    out: "dict[str, list[str]]" = {}
+    for species_id in sorted(assignments):
+        resolved, was_deterministic = resolve_unresolved_family(
+            assignments[species_id],
+            species_id=species_id,
+            name_tokens=name_tokens.get(species_id, ()),
+            curated_terms=curated,
+            key_owners=owners,
+        )
+        out[species_id] = sorted(set(resolved))
+        if was_deterministic:
+            FALLBACK_SURFACE.append(species_id)
+    return out
 
 
 def load_catalog(path: Path = CATALOG_PATH) -> "list[SpeciesRow]":

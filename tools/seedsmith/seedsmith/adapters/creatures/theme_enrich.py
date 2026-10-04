@@ -20,6 +20,12 @@ from ...pipeline.llm_caller import LlmCallerConfig, live_answer_caller
 from ...pipeline.model import audit_schema
 from ...pipeline.run import validate_against_schema
 from ...pipeline.run_ledger import RunLedger
+#: The placeholder-token pattern moved to the shared leaf `seedsmith.ladders` on 2026-10-04,
+#: byte-identical, so the family-label gate in `creatures/anchor/schema.py` can refuse the same
+#: labels from ONE declaration. See that leaf for why it is a sibling predicate
+#: (`carries_no_identity`) rather than a wider regex — widening this one would change the
+#: flavour-prose behaviour right here, which is a different field with different rules.
+from seedsmith.ladders import PLACEHOLDER_TOKEN
 
 CREATURES_ROOT = seed_root() / "creatures"
 #: species-gear-chain T16: reads v2 (rarity corrected, keys unchanged).
@@ -38,7 +44,10 @@ THEME_ENRICH_SCHEMA: dict = {
 }
 
 _CITATION = re.compile(r"(?:https?://|www\.|\[[^\]]+\]\([^)]*\))", re.IGNORECASE)
-_PLACEHOLDER = re.compile(r"(?:lorem|todo|tbd|placeholder|<[^>]+>)", re.IGNORECASE)
+#: `_PLACEHOLDER` used to be declared here; it is `PLACEHOLDER_TOKEN` from the shared leaf now
+#: (2026-10-04), so this module and the family-label gate read one definition. Kept under the old
+#: name because this module's own call sites use it; the alias is the migration, not a second copy.
+_PLACEHOLDER = PLACEHOLDER_TOKEN
 _SYNTHETIC_ID = re.compile(r"^(?:enumvalue\d+|extract_(?:single|ten))$", re.IGNORECASE)
 
 

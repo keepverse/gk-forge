@@ -40,6 +40,15 @@ CONSUMER_GUARDS = (
     "family has a live label",
 )
 
+#: Guards this predicate raises that are NOT consumer guards — SOURCE-side refusals, added
+#: 2026-10-04. Kept as a separate tuple because `CONSUMER_GUARDS` is the coverage claim against
+#: `catalog.py`'s own raises, and widening THAT would break the contract it exists to state: these
+#: refuse shapes the consumer loads happily. `normalize_family_key` maps `placeholder entry` to the
+#: perfectly loadable key `entry`, so no transcription of the consumer's raises could ever catch it.
+SOURCE_GUARDS = (
+    "family label asserts an identity",
+)
+
 LEGAL = {
     "speciesId": "Specimen",
     "elementPrimary": "fire",
@@ -126,6 +135,53 @@ def test_the_predicate_documents_every_guard_the_consumer_raises_on():
         "seed_consumer_violations does not account for these consumer guards: "
         + ", ".join(missing)
         + " - add the branch and name it, or the corpus will ship the shape again")
+
+    missing_source = [name for name in SOURCE_GUARDS if name not in doc]
+    assert not missing_source, (
+        "seed_consumer_violations does not document these source-side guards: "
+        + ", ".join(missing_source))
+
+
+@pytest.mark.parametrize("label", [
+    "placeholder entry", "placeholder plant", "unnamed plant", "unnamed-plant",
+    "unnamed zombie", "unknown-plant", "unspecified-plant", "unidentified-plant",
+    "TBD-squash", "<unnamed>", "lorem-ipsum",
+])
+def test_a_family_label_asserting_no_identity_is_refused(label):
+    """Every one of the eight anchor-space placeholder labels the corpus actually shipped.
+
+    All eight reach the seed because the identity brief prints `Name: (unnamed)` for a capture slot
+    with no name, so the model answered with the placeholder itself. The consumer accepts every one
+    of them — `normalize_family_key` turns them into real keys — which is the whole reason this is a
+    source-side guard and not a transcribed consumer raise.
+    """
+    got = violations(fields(family=[label]))
+    assert got, f"the source-side guard never fires for {label!r}"
+    assert any("assert no captured identity" in v for v in got), got
+
+
+@pytest.mark.parametrize("label", ["sun", "unknownplant", "sunflower", "nuts", "peashooter"])
+def test_a_real_family_term_is_not_mistaken_for_a_placeholder(label):
+    """The identity check matches on TOKEN boundaries, not as a substring.
+
+    `unknownplant` is one token and is not two, and `sun` does not contain `unknown`. Without the
+    boundary the gate would refuse real families, and a refusal that fires on legal input is a
+    guard nobody can route around.
+    """
+    assert violations(fields(family=[label])) == ()
+
+
+def test_the_placeholder_gate_is_the_shared_declaration_not_a_second_copy():
+    """`theme_enrich`'s flavour check and this gate must read ONE regex.
+
+    Two private copies of one pattern is the drift `normalize_family_key` was moved to the shared
+    leaf to prevent; this asserts the move stayed done, by identity rather than by pattern text.
+    """
+    from seedsmith.adapters.creatures import theme_enrich
+    from seedsmith import ladders
+
+    assert theme_enrich._PLACEHOLDER is ladders.PLACEHOLDER_TOKEN
+    assert theme_enrich.source_can_support_enrichment({}) is True  # module still wired up
 
 
 def test_every_documented_guard_has_a_behavioural_case():
