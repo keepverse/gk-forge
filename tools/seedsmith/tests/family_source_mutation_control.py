@@ -1,4 +1,4 @@
-"""MUTATION CONTROL for the three new family-label refusals (2026-10-04).
+"""MUTATION CONTROL for the four new family-label refusals (2026-10-04).
 
 One script, one process, `try/finally` restore, sha256-verified — because a control whose result is
 unknown is not a control. A multi-step shell sequence in this programme was interrupted by a server
@@ -80,6 +80,18 @@ REFUSALS = {
         "tests/test_family_source_repairs.py::"
         "test_each_artefact_only_species_resolves_to_a_real_grouping",
     ),
+    # The owner's 2026-10-04 clause. Disabled by making the predicate answer False, which is
+    # exactly the pre-clause behaviour. The named test is the SYNTHETIC case, not the corpus-wide
+    # invariant: the invariant is "no species keeps its own name as a label", which would go
+    # vacuously green if the corpus ever held no such label, whereas the synthetic one fails for as
+    # long as the predicate exists.
+    "R4 a label may not be the whole of a species' name": (
+        PKG / "adapters/creatures/family/fallback.py",
+        '    return sorted(str(family_id).split("-")) == words',
+        "    return False",
+        "tests/test_family_label_refusal.py::"
+        "test_the_clause_refuses_a_name_even_when_the_label_groups_other_species",
+    ),
 }
 
 
@@ -156,7 +168,7 @@ def control(name: str, path: Path, disable: str, enable: str, red_test: str) -> 
 
 
 def main() -> int:
-    print("MUTATION CONTROL — three new family-label refusals")
+    print("MUTATION CONTROL — four new family-label refusals")
     print(f"repo: {ROOT.parent}")
     print(f"acceptance set: {len(ACCEPTANCE)} files")
 

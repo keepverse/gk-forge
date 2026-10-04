@@ -55,6 +55,8 @@ from seedsmith.adapters.creatures.family.consolidate import (
     consolidate,
 )
 from seedsmith.adapters.creatures.family.fallback import (
+    family_label_is_artefact,
+    label_is_species_own_name,
     resolve_unresolved_family,
 )
 from seedsmith.ladders import normalize_family_key
@@ -298,3 +300,128 @@ def test_the_deterministic_fallback_only_uses_committed_vocabulary(live_assignme
             continue
         for family in resolved:
             assert family in owners, f"{species_id}: fallback invented {family!r}"
+
+
+# =================================================================================================
+# The owner's clause — a label may not be the whole of a species' name, even when it groups others
+# =================================================================================================
+#
+# Measured on the committed corpus by A/B in one process (clause disabled vs live): it fires on 6
+# species and changes all 6, taking the namespace from 612 ids to 608. `squash` and `cactus` are the
+# two that group OTHER species (7 and 8 members, 6 and 7 after) — they are the case the ruling is
+# about, because the grouping test already passed them. None of the 6 is emptied, none is lost, and
+# the deterministic-fallback surface is unchanged at 25, so no species gained a faked provenance.
+# That count is a READING and is deliberately not pinned here (validation-ssot §1): the corpus grows.
+
+
+def test_the_clause_reads_the_name_as_a_token_multiset_not_a_string():
+    """`family_id` is kebab and `name_tokens` is CamelCase-split, so the two are written in
+    different conventions by construction. A string comparison would refuse only the labels that
+    happen to share the name's word order and silently pass the rest — a detector that looks present
+    and is not, which is the same trap `identity_echo_of` fell into with a lower-cased id."""
+    # same words, written the way a family label is written
+    assert label_is_species_own_name("ice-bean", name_tokens=("ice", "bean"))
+    assert label_is_species_own_name("firecracker", name_tokens=("firecracker",))
+    # same words, ORDER SWAPPED — word order is not load-bearing in a two-noun compound, and the
+    # corpus writes both `LanternPumpkin` and `PumpkinLantern`
+    assert label_is_species_own_name("pumpkin-lantern", name_tokens=("lantern", "pumpkin"))
+    # case is normalised, so a caller's un-lowercased tokens still answer correctly
+    assert label_is_species_own_name("ice-bean", name_tokens=("Ice", "Bean"))
+
+
+def test_a_fragment_of_the_name_is_not_the_whole_of_it():
+    """`CactusBlover` carrying `cactus` is a different question — is that word a grouping for this
+    creature? — and the grouping test answers it. Catching it here would refuse the seven-species
+    `cactus` family on every one of its members."""
+    assert not label_is_species_own_name("cactus", name_tokens=("cactus", "blover"))
+    assert not label_is_species_own_name("corn", name_tokens=("ice", "corn"))
+
+
+def test_no_name_signal_answers_no_rather_than_guessing():
+    """A species with no name signal is a missing-data defect. Refusing labels on its behalf would be
+    a guess, and the honest branch for that is `resolve_unresolved_family`'s own no-derivation exit."""
+    assert not label_is_species_own_name("nut", name_tokens=())
+    assert not label_is_species_own_name("nut", name_tokens=("",))
+
+
+def test_the_clause_refuses_a_name_even_when_the_label_groups_other_species():
+    """⛔ The ruling itself. `squash` groups six other species and is also the exact name of one, and
+    grouping does not make a label something other than the creature's own name. This is the case the
+    structural test cannot see: `squash` passes `family_label_is_artefact` outright, because six other
+    species corroborate it."""
+    owners = {"squash": {"squash"} | {f"squash{i}" for i in range(6)}}
+    assert not family_label_is_artefact("squash", key_owners=owners, species_id="squash")
+    assert resolve_unresolved_family(
+        ["squash", "ambusher", "crusher"], species_id="squash",
+        name_tokens=("squash",), curated_terms=(), key_owners=owners,
+    ) == (["ambusher", "crusher"], False)
+
+
+def test_the_clause_drops_only_the_offending_label_and_keeps_the_rest():
+    """It is a per-LABEL refusal, not a whole-species verdict. `resolve_unresolved_family` consults
+    `family_label_is_artefact` only when EVERY label is an artefact, so a fourth clause inside that
+    predicate would be unreachable for any species holding a real grouping — which is all six of the
+    corpus instances. Asserted here so the filter shape cannot quietly become an all-artefact clause."""
+    owners = {"ambusher": {"a", "b"}, "squash": {"squash", "c"}}
+    families, was_deterministic = resolve_unresolved_family(
+        ["squash", "ambusher"], species_id="squash", name_tokens=("squash",),
+        curated_terms=(), key_owners=owners,
+    )
+    assert families == ["ambusher"]
+    assert was_deterministic is False, "dropping one label is not a deterministic repair"
+
+
+def test_the_clause_never_empties_a_species():
+    """A species whose ONLY label is its own name keeps it. Emptying would hand the loader a
+    family-less species, which is the `has no family` load failure — so the filter backs off rather
+    than trading an ugly label for a broken corpus."""
+    assert resolve_unresolved_family(
+        ["squash"], species_id="squash", name_tokens=("squash",),
+        curated_terms=(), key_owners={"squash": {"squash", "c"}},
+    ) == (["squash"], False)
+    # and the same holds when the species would otherwise have taken the fallback
+    assert resolve_unresolved_family(
+        ["aloe"], species_id="aloe", name_tokens=("aloe",),
+        curated_terms=(), key_owners={"aloe": {"aloe"}},
+    ) == (["aloe"], False)
+
+
+def test_the_fallback_may_not_re_select_the_label_the_clause_just_refused():
+    """The hole the clause would otherwise fall into one line later. `Squash` holding
+    `['squash', <artefact>]` still reaches the selection loops, and `squash` is its own most
+    corroborated name word — so without the exclusion the derivation hands back the very label that
+    was just refused and the clause is a no-op for that species."""
+    owners = {"present": {"other"}, "squash": {"squash"} | {f"squash{i}" for i in range(6)}}
+    families, _ = resolve_unresolved_family(
+        ["squash", "present"], species_id="squash", name_tokens=("squash",),
+        curated_terms=("nut",), key_owners=owners,
+    )
+    assert "squash" not in families, f"the clause was undone by the derivation: {families}"
+
+
+def test_no_species_keeps_a_label_that_is_its_own_name(live_assignments, live_records):
+    """The corpus-wide form, as an invariant and not a count: whatever the corpus holds, no species
+    may come out of the derivation carrying a label that is its own name. Paired with the synthetic
+    cases above, which prove the predicate fires at all."""
+    name_tokens = _committed_name_tokens(live_records)
+    kept = sorted(
+        f"{species_id}:{family}"
+        for species_id, families in live_assignments.items()
+        for family in families
+        if label_is_species_own_name(family, name_tokens=name_tokens.get(species_id, ()))
+    )
+    assert kept == [], f"species kept a label that is its own name: {kept}"
+
+
+def test_the_clause_leaves_the_multi_member_families_themselves_intact(live_assignments):
+    """The clause refuses the LABEL on the species that is named after it. It does not dissolve the
+    family: `squash` and `cactus` are still real groupings for the six and seven species that are not
+    named after them, which is the whole reason refusing the label is cheaper than fixing the list."""
+    owners: "dict[str, set[str]]" = {}
+    for species_id, families in live_assignments.items():
+        for family in families:
+            owners.setdefault(family, set()).add(species_id)
+    for family in ("squash", "cactus"):
+        assert len(owners.get(family, ())) > 1, (
+            f"{family} was dissolved by the clause; it should survive for the species that are not "
+            f"named after it")
