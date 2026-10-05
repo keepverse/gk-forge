@@ -135,15 +135,27 @@ class KindSpecTests(unittest.TestCase):
             "id", "scope", "category", "rungBand", "targetMode", "relation", "atomFamilies",
             "pairingRole",
         })
-        # `description` added 2026-09-08 (`seedsmith-content-standard`, `content-completeness-
-        # actions`, Task 8) -- a real, additive widening of spec-corpus-loader.md §3 step 4's own
-        # transcribed shape, not a drift from it: `kinds.py`'s own comment on the field cites the
-        # reviewed-change precedent (`candidate_assembly/derive.py`'s 2026-09-04 note that a
-        # `flavor`/`flavorKey`-style split for actions would need exactly this).
+        # `description` was added here on 2026-09-08 (`seedsmith-content-standard`,
+        # `content-completeness-actions`, Task 8) and RETIRED on 2026-10-05. The widening was
+        # additive and legitimate while it lived, and it is now subtracted, because nothing read it:
+        # `ActionRow` carries `DescriptionKey` and no `Description`, `ActionCorpusBriefJson.Parse`
+        # parses `descriptionKey` and no `description` element, and the sentence a player reads
+        # resolves through `ItemCard.GrantedActionLines` -> `LookupString(a.DescriptionKey)` against
+        # gk-content's display catalog. `descriptionKey` is untouched and still required there. The
+        # set below is still pinned EXACTLY, not loosened to a subset check -- a future re-add of
+        # any field fails this line, which is the point of a transcription of §3 step 4.
         self.assertEqual(action_seed.optional, {
             "scopeKey", "areaShape", "tags", "kindHint", "structureAxes", "pairedPayoffFamily",
-            "motifsUsed", "name", "description",
+            "motifsUsed", "name",
         })
+        # Redundant with the exact pin above — which fires first — and kept deliberately for the one
+        # case the pin cannot cover: if a future edit ever "fixes" a schema drift by weakening this
+        # to a subset check, the subset check would accept a returning `description` silently, and
+        # this line is what still fails, with a message naming the retirement. Mutated to confirm it
+        # can fail; not a second, independent contract.
+        self.assertNotIn("description", action_seed.optional,
+                         "`description` was retired 2026-10-05 — it has no reader anywhere; prose "
+                         "belongs to gk-content, resolved through `descriptionKey`")
         self.assertEqual(action_seed.reference_fields, {"atomFamilies", "pairedPayoffFamily", "scopeKey"})
 
     def test_action_seed_sample_ids_match_its_own_pattern(self) -> None:

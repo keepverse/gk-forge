@@ -81,35 +81,6 @@ class ProposedActionEntryPointsTests(unittest.TestCase):
                               "species", "propose_signature_action")
 
 
-class ActionDescriptionsEntryPointTests(unittest.TestCase):
-    def test_backfill_resolves_and_passes_the_config_to_call_model(self) -> None:
-        from seedsmith.adapters.actions import generate_action_descriptions as mod
-
-        entry = MagicMock()
-        entry.id = "action.one"
-        entry.data = {}
-        load_result = MagicMock()
-        load_result.corpus.by_kind.return_value = [entry]
-        seen: dict = {}
-
-        def fake_call_model(_system, _user, **kwargs):
-            seen.update(kwargs)
-            return '{"description": "a replacement description"}'
-
-        with patch.object(mod, "resolve_live_transport", return_value=SENTINEL), \
-             patch.object(mod, "plan", return_value=["action.one"]), \
-             patch.object(mod, "load_committed", return_value=load_result), \
-             patch.object(mod, "build_brief", return_value="a brief"), \
-             patch.object(mod, "RunLedger", MagicMock()), \
-             patch.object(mod, "stamp_description", MagicMock(return_value={})), \
-             patch.object(mod, "group_ids_by_path", return_value={}), \
-             patch.object(mod, "call_model", fake_call_model):
-            summary = mod.backfill(only=("action.one",))
-
-        self.assertIs(seen["config"], SENTINEL)
-        self.assertEqual(summary["generated"], ["action.one"])
-
-
 class ActionPipelineEntryPointTests(unittest.TestCase):
     def test_run_pipeline_resolves_when_config_is_omitted(self) -> None:
         from seedsmith.adapters.actions import generate_action_pipeline as mod

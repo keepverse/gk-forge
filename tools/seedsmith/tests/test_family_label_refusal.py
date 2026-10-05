@@ -23,8 +23,9 @@ here against `fallback` and `catalog`.
 set RESOLVES; the shipped loader RAISES (`catalog.py`'s `has no family`, kept on purpose because that
 raise is what made 338 family-less species visible). Its replacement asserts the raise, which also
 fills a real hole: **no test anywhere in the tree guarded that raise** — the brief named
-`test_a_species_with_no_family_has_no_family` in `tests/test_actions_description_completeness.py`, and
-that test does not exist in any file. `test_a_name_echo_that_groups_several_species_is_legitimate`
+`test_a_species_with_no_family_has_no_family` in `tests/test_actions_description_completeness.py`
+(that file was deleted 2026-10-05 with the retired actions `description_backfill` generator; it never
+contained that test either way), and that test does not exist in any file. `test_a_name_echo_that_groups_several_species_is_legitimate`
 asserted that `squash` is never refused for being a name echo; the owner has since ruled the
 opposite — a label may not be the whole of a species' name even when it groups other species — and
 that clause is tested in this file too.
