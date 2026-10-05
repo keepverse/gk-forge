@@ -40,7 +40,6 @@ from ..metrics.content_completeness import (
     CompletenessSpec, ContentFieldMissing, ContentFieldStale, ContentLanguageContamination,
     register_completeness,
 )
-from ..adapters.actions.description_backfill import ACTIONS_COMPLETENESS_SPEC
 from ..metrics.corpus_coverage import BasisHistogramMetric, DumpCompletenessMetric
 from ..metrics.creature_coverage import CreatureUncoveredMetric
 from ..metrics.creature_roster import ALL_CREATURE_ROSTER_METRICS
@@ -115,13 +114,14 @@ def build_registry() -> MetricRegistry:
     # not a replacement.
     register_completeness(CompletenessSpec(
         domain="items", kinds=FLAVOR_EXPECTED_KINDS, field="flavor"))
-    # `content-completeness-actions` (Task 8): actions had NOTHING before this task (no ledger, no
-    # `_provenance`, no missing-field metric — `seedsmith-content-standard-ideal.md`'s own "Real
-    # gap" finding). `ACTIONS_COMPLETENESS_SPEC` (`adapters/actions/description_backfill/
-    # __init__.py`) names `description` — the AUTHORED flavour-text field this task added to
-    # `action-seed` (`adapters/actions/kinds.py`'s own `ACTION_SEED_OPTIONAL`), distinct from the
-    # already-existing `descriptionKey` (a minted, empty i18n key with nothing behind it yet).
-    register_completeness(ACTIONS_COMPLETENESS_SPEC)
+    # ⚠ 2026-10-05: the `actions` registration that sat here is RETIRED — a finding, not a silent
+    # cleanup. It named `description` on `action-seed`, a field with NO reader anywhere (`ActionRow`
+    # carries `DescriptionKey` only; `ActionCorpusBriefJson` parses no `description` element), so the
+    # gate demanded prose gk-content owns that no code path could show a player. It also enforced
+    # agreement the corpus did not have: of 181 rows carrying `description`, 25 had a `descriptionKey`
+    # in `gk-content/content/display/en.json` and NONE matched its catalog row. The field that IS read,
+    # `descriptionKey`, keeps no spec; its falsifiable guard is gk-core's `GrantedActionTextTests`.
+    # Retired with it: `description_backfill/`, its corpus rows, and the `_runs/` ledger.
     registry.register(ContentFieldMissing())
     registry.register(ContentFieldStale())
     registry.register(ContentLanguageContamination())

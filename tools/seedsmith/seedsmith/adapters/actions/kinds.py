@@ -27,16 +27,21 @@ ACTION_SEED_REQUIRED = frozenset({
 ACTION_SEED_OPTIONAL = frozenset({
     "scopeKey", "areaShape", "tags", "kindHint", "structureAxes", "pairedPayoffFamily",
     "motifsUsed", "name",
-    # `description` (seedsmith-content-standard, content-completeness-actions, Task 8) — the
-    # AUTHORED player-facing flavour text this domain never had a field for at all
-    # (`spec-content-completeness-actions.md` §2: `candidate_assembly/derive.py`'s own 2026-09-04
-    # comment flagged this exact split as "a real, separate, reviewed schema change... not
-    # something to smuggle in here" — this is that reviewed change). Mirrors `items/kinds.py`'s
-    # `flavor`/`flavorKey` pair exactly: `descriptionKey` (already minted, above, in
-    # ACTION_SEED_OPTIONAL) is the stable i18n-ready identifier; `description` is the real English
-    # text that identifier will eventually resolve to. Optional, not required, matching `name`'s
-    # own optionality — the completeness *metric* (not the schema) is what reports a real gap.
-    "description",
+    # ⚠ `description` was here from 2026-09-08 to 2026-10-05 and is RETIRED — it was declared as
+    # "the AUTHORED English text `descriptionKey` will eventually resolve to", on the items'
+    # `flavor`/`flavorKey` precedent. It was never that: nothing resolved it. `ActionRow` has no
+    # `Description` field (it carries `DescriptionKey` and nothing else), `ActionCorpusBriefJson`
+    # parses `descriptionKey` and never a `description` element, and the player-visible sentence
+    # resolves through `ItemCard.GrantedActionLines` → `LookupString(a.DescriptionKey)` against
+    # `gk-content/content/display/en.json`. Measured before removal: 181 rows carried it, 25 of
+    # those keys exist in the display catalog, and NONE of the 25 matched its catalog row — the
+    # corpus contradicted the text a player reads, in 25 places, while being unread in all 181.
+    # The prose belongs to gk-content, which is where `innate_picker/derive.py`'s own comment on
+    # `descriptionKey` already said it lands. `descriptionKey` is untouched and still required by
+    # `ActionCorpusBriefJson.Parse`.
+    #
+    # The committed corpus is rewritten by `migrate_retired_description.py` (`--check` is the CI
+    # gate) — never by hand.
 })
 ACTION_SEED_REFERENCES = frozenset({"atomFamilies", "pairedPayoffFamily", "scopeKey"})
 
