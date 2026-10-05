@@ -81,8 +81,13 @@ class LlmCallerConfig:
     #: than the default. Counting reach points rather than invocations gives 35 across 27 files, or 71
     #: across 36 once config factories are included. The claim is structural, not a count: any site
     #: that resolves its config through `resolve_live_transport` or `load_config` reads this field.
-    #: One known exception is named in `adapters/structures/generate_anchor.py`, which defaults
-    #: `config=LlmCallerConfig()` at import and therefore never consults the config chain at all.
+    #: There are no exceptions left. There WAS one, named here while it existed:
+    #: `adapters/structures/generate_anchor.py` gave three parameters the default
+    #: `config=LlmCallerConfig()`, which is evaluated ONCE at import — so those signatures froze
+    #: `mode` (and endpoint, and model) to the built-in before any `.env` was read, and an
+    #: operator's `SEEDSMITH_LLM_MODE=delegated` could never reach that pipeline at all. They now
+    #: default to `None` and let the chain resolve, which is the rule every other site already
+    #: followed. `tests/test_transport_seam_wiring.py` is what stops it coming back.
     #:
     #: The literal is spelled here instead of imported from the seam because `authorer` imports this
     #: module (`ApiAuthorer.answer` calls `call_model`), so importing back at module scope would be a

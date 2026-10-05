@@ -95,7 +95,7 @@ def _field_schema(field: str, options: "Sequence[str]") -> dict:
 
 def sample_field(
     entity_id: str, field: str, plan: dict, brief: dict, sample_index: int, *,
-    role: "str | None" = None, config: LlmCallerConfig = LlmCallerConfig(),
+    role: "str | None" = None, config: "LlmCallerConfig | None" = None,
     caller=call_model,
 ) -> "str | list[str] | None":
     """One of `SAMPLE_COUNT` independent samples for one field. `sample_index` is baked into BOTH
@@ -104,6 +104,16 @@ def sample_field(
     across `SAMPLE_COUNT` samples, so one bad sample degrades the vote rather than aborting it —
     `resolve_set_vote`'s own "a None sample still counts against the threshold" rule is exactly
     built to make this safe).
+
+    **`config=None`, not `config=LlmCallerConfig()`.** This parameter used to default to a config
+    built AT IMPORT TIME, which is the one bypass of the authoring seam
+    (`pipeline/llm_caller.py`'s own `mode` field comment named it as the single known exception).
+    An import-time config is frozen before the operator's `.env` is read, so `SEEDSMITH_LLM_MODE`,
+    `SEEDSMITH_LLM_ENDPOINT` and `SEEDSMITH_LLM_MODEL` could never reach this pipeline: a run on a
+    configured machine answered from the built-in model id, and a run with no endpoint raised
+    `AUTHORING-NO-ENDPOINT` even though one was configured. `None` is the routed shape — `call_model`
+    resolves through `load_config()` at call time (its documented NS3 contract) and the seam's
+    dispatch reads `mode` off that one resolved config, so "which mode" is decided in ONE place.
     """
     field_opts = field_options_for(field, plan, role=role)
     shuffled = order_for(entity_id, field, sample_index, field_opts.options)
@@ -129,7 +139,7 @@ def sample_field(
 
 def vote_field(
     entity_id: str, field: str, plan: dict, brief: dict, *,
-    role: "str | None" = None, config: LlmCallerConfig = LlmCallerConfig(), caller=call_model,
+    role: "str | None" = None, config: "LlmCallerConfig | None" = None, caller=call_model,
 ) -> "VoteResult | SetVoteResult":
     """28.2: three independent samples, majority-voted. `1-1-1` (or, for a set field, no member
     reaching threshold) resolves to `unresolved` — never `samples[0]`."""
@@ -156,7 +166,7 @@ class ConstrainedDecodingNotProven(Exception):
     the JSON Schema it is given — raised rather than assumed."""
 
 
-def prove_constrained_decoding(config: LlmCallerConfig = LlmCallerConfig(), caller=call_model) -> dict:
+def prove_constrained_decoding(config: "LlmCallerConfig | None" = None, caller=call_model) -> dict:
     """One real call, with a HOSTILE prompt (asks for prose, a code fence, and an out-of-enum
     value) and a real schema restricting the answer to a closed 2-value enum. Mirrors the creature
     pipeline's own already-measured proof (2026-09-01, same default model) exactly, retargeted at

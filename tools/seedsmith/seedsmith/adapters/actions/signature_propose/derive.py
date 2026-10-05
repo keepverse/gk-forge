@@ -190,9 +190,14 @@ def sample_draft(brief: Mapping[str, Any], *, sample_index: int,
     context = build_context(brief, sample_index=sample_index, pairing_table=pairing_table,
                             family_glossary=family_glossary, usage_weights=usage_weights)
     brief_text = build_brief(context)
+    # `config=config`, NOT `config or LlmCallerConfig()`: a built-in built HERE never consults the
+    # config chain, so the operator's `SEEDSMITH_LLM_MODE=delegated` request — and the
+    # endpoint/model beside it — could never reach this call. `None` is the routed shape:
+    # `call_with_self_heal` resolves through `load_config()` at call time (its own NS3 contract)
+    # and the seam decides the mode from that one resolved config.
     out, soft = call_with_self_heal(
         dict(context), SYSTEM_PROMPT, lambda _items: brief_text, build_verify_fn(context),
-        config=config or LlmCallerConfig(), max_heal=MAX_HEAL, default_for=default_for_none,
+        config=config, max_heal=MAX_HEAL, default_for=default_for_none,
         schema=schema_for_call(context["allowedAtomFamilies"], context["motifsExpressedEnum"],
                                context["differentiatorEnum"]),
     )

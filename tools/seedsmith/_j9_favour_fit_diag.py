@@ -18,6 +18,11 @@ from seedsmith.adapters.trees.species.prompts import (
 from seedsmith.adapters.trees.species.schemas import favour_fit_schema
 from seedsmith.pipeline import llm_caller
 
+# Resolved through the config chain, not `llm_caller.DEFAULT_CONFIG`: that name is an import-time
+# built-in, so a diagnostic run could never reach the operator's configured endpoint/model — and,
+# since `mode` rides on the same config, never a delegated run either.
+config = llm_caller.load_config()
+
 roster = load_roster()
 species_targets = load_species_targets()
 assignments = assign_favour_cells(roster.species_ids, species_targets)
@@ -39,6 +44,6 @@ for species_id in ["AbyssSwordStar", "AcientSunNut", "AllPeater"]:
 
     for i in range(3):
         raw = llm_caller.call_model(
-            FAVOUR_FIT_SYSTEM_PROMPT, user, config=llm_caller.DEFAULT_CONFIG, temperature=0.2,
+            FAVOUR_FIT_SYSTEM_PROMPT, user, config=config, temperature=0.2,
             schema=schema)
         print(f"--- SAMPLE {i} RAW ---  {raw}")

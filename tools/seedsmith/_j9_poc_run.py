@@ -15,7 +15,7 @@ from seedsmith.adapters.trees.plan import tuning as plan_tuning
 from seedsmith.adapters.trees.species.generate_tree import run_species_tree
 from seedsmith.adapters.trees.species.plan import FavourCell
 from seedsmith.adapters.trees.species.roster import SpeciesAnchor
-from seedsmith.pipeline.llm_caller import LlmCallerConfig
+from seedsmith.pipeline.llm_caller import load_config
 
 seed_root = Path(sys.argv[1])
 ledger_path = seed_root / "_runs" / "ledger.json"
@@ -32,8 +32,12 @@ anchor = SpeciesAnchor(
 offered = FavourCell("Onslaught", "air", "spark")
 alternates = [FavourCell("Ferocity", "air", "shatter"), FavourCell("Precision", "light", "expose")]
 
-config = LlmCallerConfig(endpoint="http://localhost:1234/v1/chat/completions",
-                        model="google/gemma-4-26b-a4b-qat", attempts=2, retry_delay=1.0, timeout=420)
+# Through the config chain. This used to be a literal `LlmCallerConfig(endpoint=..., model=...)`
+# naming one machine's LM Studio port and one model id, in a committed file — so the PoC could only
+# ever run on the machine that wrote it, it ignored `.env` entirely, and it could never honour a
+# delegated run because `mode` rides on the same config. `load_config()` is the routed shape; the
+# numbers it dropped (`attempts=2`, `timeout=420`) are already this package's own defaults.
+config = load_config()
 
 t0 = time.time()
 result = run_species_tree(

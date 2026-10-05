@@ -55,7 +55,7 @@ from seedsmith.adapters.trees.species.generate_tree import (
 from seedsmith.adapters.trees.species.plan import assign_favour_cells
 from seedsmith.adapters.trees.species.roster import load_roster
 from seedsmith.adapters.trees.targets import load as load_species_targets
-from seedsmith.pipeline.llm_caller import DEFAULT_CONFIG
+from seedsmith.pipeline.llm_caller import load_config
 
 RESULTS_PATH = Path(__file__).resolve().parent / "_j9_batch_run_results.json"
 
@@ -125,7 +125,7 @@ def check(*, count: int) -> dict:
 def resolve_codex_with_retry(
     species_id: str, anchor, resolved_cell, *, first_reason: str,
     total_attempts: int = DEFAULT_CODEX_VOTE_ATTEMPTS,
-    call=None, config=DEFAULT_CONFIG, workers: int = WORKERS,
+    call=None, config=None, workers: int = WORKERS,
 ) -> "tuple[str | None, str | None, int]":
     """Re-draw ONE species' codex vote until it resolves or the bound is reached.
 
@@ -146,6 +146,12 @@ def resolve_codex_with_retry(
         raise ValueError("total_attempts must be >= 1")
     if not first_reason:
         raise ValueError("first_reason is required: a retry without a reason is an unnamed failure")
+    # `config=None` resolves through the config chain at call time, so this driver honours the
+    # operator's `.env` / `seedsmith.toml` — including `SEEDSMITH_LLM_MODE`, which is the explicit
+    # owner request the authoring seam exists to carry. It used to default to `DEFAULT_CONFIG`, an
+    # import-time built-in, so this driver's mode and endpoint were whatever the package was
+    # imported with and no operator request could ever reach it.
+    config = config if config is not None else load_config()
     provenance_base = {"pipeline": "species-tree", "model": config.model}
     draws = 1
     reason = first_reason
@@ -162,7 +168,7 @@ def resolve_codex_with_retry(
 
 def finalize_codex(result, anchor, *, seed_root: "Path | None" = None,
                    codex_attempts: int = DEFAULT_CODEX_VOTE_ATTEMPTS,
-                   call=None, config=DEFAULT_CONFIG, workers: int = WORKERS) -> dict:
+                   call=None, config=None, workers: int = WORKERS) -> dict:
     """One `run_species_tree` result -> this species' committed codex outcome.
 
     `run_species_tree` never writes a summary-less species file (spec-species-tree.md's own `Never`
@@ -204,7 +210,7 @@ def finalize_codex(result, anchor, *, seed_root: "Path | None" = None,
 
 
 def run_batch(*, count: int, out_path: Path = RESULTS_PATH,
-              codex_attempts: int = DEFAULT_CODEX_VOTE_ATTEMPTS) -> "list[dict]":
+              codex_attempts: int = DEFAULT_CODEX_VOTE_ATTEMPTS, config=None) -> "list[dict]":
     """Run the first `count` roster species. Zero for `count` means the whole roster.
 
     `codex_attempts` is the TOTAL number of 3-sample codex draws one species may get (draw 1 from
@@ -215,6 +221,9 @@ def run_batch(*, count: int, out_path: Path = RESULTS_PATH,
     """
     if codex_attempts < 1:
         raise ValueError("codex_attempts must be >= 1")
+    # Same routing as `resolve_codex_with_retry`: `None` means "resolve through the config chain",
+    # never "use the import-time built-in".
+    config = config if config is not None else load_config()
     roster = load_roster()
     targets = load_species_targets()
     assignments = assign_favour_cells(roster.species_ids, targets)
@@ -238,8 +247,8 @@ def run_batch(*, count: int, out_path: Path = RESULTS_PATH,
         try:
             result = run_species_tree(
                 species_id, anchor, ordinal, assignment.cell, list(assignment.alternates),
-                targets=node_targets, tuning=tuning, config=DEFAULT_CONFIG, workers=WORKERS)
-            codex = finalize_codex(result, anchor, codex_attempts=codex_attempts)
+                targets=node_targets, tuning=tuning, config=config, workers=WORKERS)
+            codex = finalize_codex(result, anchor, codex_attempts=codex_attempts, config=config)
         except SpeciesTreeGateFailure as ex:
             elapsed = time.monotonic() - t0
             print(f"[{i+1}/{len(batch_ids)}] {species_id}: HARD GATE FAILED after {elapsed:.1f}s: {ex}",
