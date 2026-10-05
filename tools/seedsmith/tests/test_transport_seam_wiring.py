@@ -546,12 +546,23 @@ class DetectorFiresTests(unittest.TestCase):
                 self.assertIn(code, covered, f"{code} has no non-vacuity offender")
 
     def test_every_offender_fires_the_rule_it_is_attributed_to(self):
-        """A fixture must not pass on a NEARBY rule's violation. That is a fixture that proves
-        nothing about the shape it names."""
+        """A fixture must not pass on the credit of a NEARBY rule.
+
+        What it may legitimately do is violate TWO rules — a mode literal is both a decision (G3) and
+        a stray `'delegated'` (G5) — so co-firing is not a defect. What would be a defect is a
+        fixture attributed to `G3` that only trips `G5`: that is a fixture proving nothing about the
+        shape it names. So the attributed code must fire, AND any code that also fires must already
+        have an offender of its own rather than borrowing this fixture's proof.
+        """
+        proved = {code for _, code in self.OFFENDERS.values()}
         for label, (source, code) in self.OFFENDERS.items():
+            fired = [c for c in CODES if findings(c, source, key="s.py")]
             with self.subTest(offender=label):
-                self.assertEqual([c for c in CODES if findings(c, source, key="s.py")] or [code], [code],
-                                 f"{label} is attributed to {code} but fires a different shape")
+                self.assertIn(code, fired,
+                              f"{label} is attributed to {code} but that rule does not fire on it")
+                for other in fired:
+                    self.assertIn(other, proved,
+                                  f"{label} also trips {other}, which has no offender of its own")
 
     def test_clean_source_is_not_flagged_by_any_rule(self):
         """The mirror: a legitimate module must produce nothing, or every rule is noise."""
@@ -626,9 +637,11 @@ class DetectorFiresTests(unittest.TestCase):
                 self.assertEqual(findings("W1", source, key="inject.py"), [])
                 self.assertEqual(findings("W2", source, key="inject.py"), [])
         # And the read side of the same helper must still work, or the exception above is untested.
+        # `_arg_defaults` yields NODES, so a literal default is a Constant and `_named` reads None for
+        # it; only the `c=call_model` default is a name.
         defaults = _arg_defaults(ast.parse("def f(a, b=1, *, c=call_model):\n    pass\n"
                                           ).body[0].args)
-        self.assertEqual([_named(d) for d in defaults], [None, "1", "call_model"])
+        self.assertEqual([_named(d) for d in defaults], [None, None, "call_model"])
 
     def test_the_injected_callable_allowlist_still_names_real_files(self):
         """An allowlist whose entries no longer exist is an allowlist that stopped reviewing anything."""
